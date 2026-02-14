@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from undisorder.audio_metadata import AudioMetadata
 from undisorder.audio_metadata import extract_audio_batch
+from undisorder.config import _config_dir
 from undisorder.geocoder import Geocoder
 from undisorder.geocoder import GeocodingMode
 from undisorder.hashdb import HashDB
@@ -24,13 +25,37 @@ from undisorder.selector import group_by_directory
 from undisorder.selector import interactive_select
 
 import argparse
+import datetime
+import json
 import logging
 import os
 import pathlib
 import shutil
+import traceback
 
 
 logger = logging.getLogger(__name__)
+
+
+def _log_failure(
+    rel_dir: pathlib.PurePosixPath,
+    media_type: str,
+    batch: list[pathlib.Path],
+    exc: Exception,
+) -> None:
+    """Append a structured failure record to the import failures log."""
+    log_path = _config_dir() / "import_failures.jsonl"
+    entry = {
+        "timestamp": datetime.datetime.now().isoformat(),
+        "source_dir": str(rel_dir),
+        "media_type": media_type,
+        "files": [str(f) for f in batch],
+        "error_type": type(exc).__name__,
+        "error_message": str(exc),
+        "traceback": traceback.format_exc(),
+    }
+    with open(log_path, "a") as fh:
+        fh.write(json.dumps(entry) + "\n")
 
 
 def _group_by_source_dir(
@@ -283,11 +308,14 @@ def _import_photo_video_batch(
     return imported, skipped
 
 
-def _import_photo_video(args: argparse.Namespace, result) -> None:
-    """Import photo/video files from source into the organized collection."""
+def _import_photo_video(args: argparse.Namespace, result) -> int:
+    """Import photo/video files from source into the organized collection.
+
+    Returns the number of failed batches.
+    """
     media_files = result.photos + result.videos
     if not media_files:
-        return
+        return 0
 
     logger.info(f"Found {len(media_files)} photo/video files ({len(result.photos)} photos, {len(result.videos)} videos)")
 
@@ -303,6 +331,7 @@ def _import_photo_video(args: argparse.Namespace, result) -> None:
     dir_groups = _group_by_source_dir(media_files, args.source)
     total_imported = 0
     total_skipped = 0
+    total_failures = 0
 
     if args.dry_run:
         logger.info("\n[DRY RUN] Importing photo/video file(s) ...\n")
@@ -314,8 +343,10 @@ def _import_photo_video(args: argparse.Namespace, result) -> None:
             )
             total_imported += imported
             total_skipped += skipped
-        except Exception:
+        except Exception as exc:
             logger.exception(f"Error importing {rel_dir}, skipping")
+            _log_failure(rel_dir, "photo_video", batch, exc)
+            total_failures += 1
 
     img_db.close()
     vid_db.close()
@@ -332,6 +363,8 @@ def _import_photo_video(args: argparse.Namespace, result) -> None:
             logger.info(f"\nImported {total_imported} photo/video file(s).")
         elif not total_skipped:
             logger.info("Nothing to import.")
+
+    return total_failures
 
 
 def _import_audio_batch(
@@ -457,11 +490,14 @@ def _import_audio_batch(
     return imported, skipped
 
 
-def _import_audio(args: argparse.Namespace, result) -> None:
-    """Import audio files from source into the organized collection."""
+def _import_audio(args: argparse.Namespace, result) -> int:
+    """Import audio files from source into the organized collection.
+
+    Returns the number of failed batches.
+    """
     audio_files = result.audios
     if not audio_files:
-        return
+        return 0
 
     logger.info(f"\nFound {len(audio_files)} audio file(s)")
 
@@ -483,6 +519,7 @@ def _import_audio(args: argparse.Namespace, result) -> None:
     dir_groups = _group_by_source_dir(audio_files, args.source)
     total_imported = 0
     total_skipped = 0
+    total_failures = 0
 
     if args.dry_run:
         logger.info("\n[DRY RUN] Importing audio file(s) ...\n")
@@ -494,8 +531,10 @@ def _import_audio(args: argparse.Namespace, result) -> None:
             )
             total_imported += imported
             total_skipped += skipped
-        except Exception:
+        except Exception as exc:
             logger.exception(f"Error importing audio {rel_dir}, skipping")
+            _log_failure(rel_dir, "audio", batch, exc)
+            total_failures += 1
 
     aud_db.close()
 
@@ -511,6 +550,8 @@ def _import_audio(args: argparse.Namespace, result) -> None:
             logger.info(f"\nImported {total_imported} audio file(s).")
         elif not total_skipped:
             logger.info("No audio files to import.")
+
+    return total_failures
 
 
 def run_import(args: argparse.Namespace) -> None:
@@ -551,7 +592,14 @@ def run_import(args: argparse.Namespace) -> None:
         logger.info("No media files found.")
         return
 
+    failures = 0
     if has_media:
-        _import_photo_video(args, result)
+        failures += _import_photo_video(args, result)
     if has_audio:
-        _import_audio(args, result)
+        failures += _import_audio(args, result)
+
+    if failures:
+        log_path = _config_dir() / "import_failures.jsonl"
+        logger.warning(
+            f"\n{failures} batch(es) failed. Details written to {log_path}"
+        )

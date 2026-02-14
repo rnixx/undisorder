@@ -3,10 +3,12 @@
 from undisorder.audio_metadata import AudioMetadata
 from undisorder.importer import _group_by_source_dir
 from undisorder.importer import _iter_batches
+from undisorder.importer import _log_failure
 from undisorder.importer import run_import
 from unittest.mock import MagicMock
 from unittest.mock import patch
 
+import json
 import logging
 import os
 import pathlib
@@ -1448,3 +1450,130 @@ class TestImportEdgeCases:
         assert not target_img.exists()
         assert not target_vid.exists()
         assert not target_aud.exists()
+
+
+class TestFailureLogging:
+    """Test structured JSON failure logging."""
+
+    def test_failure_logged_to_jsonl(self, tmp_path, monkeypatch):
+        """A batch failure writes a valid JSONL entry with expected fields."""
+        config_dir = tmp_path / "config"
+        config_dir.mkdir()
+        monkeypatch.setattr("undisorder.importer._config_dir", lambda: config_dir)
+
+        rel_dir = pathlib.PurePosixPath("vacation")
+        batch = [pathlib.Path("/src/vacation/photo1.jpg")]
+        try:
+            raise OSError("disk read error")
+        except OSError as exc:
+            _log_failure(rel_dir, "photo_video", batch, exc)
+
+        log_path = config_dir / "import_failures.jsonl"
+        assert log_path.exists()
+
+        lines = log_path.read_text().strip().splitlines()
+        assert len(lines) == 1
+
+        entry = json.loads(lines[0])
+        assert entry["source_dir"] == "vacation"
+        assert entry["media_type"] == "photo_video"
+        assert entry["files"] == ["/src/vacation/photo1.jpg"]
+        assert entry["error_type"] == "OSError"
+        assert entry["error_message"] == "disk read error"
+        assert "timestamp" in entry
+
+    def test_failure_log_appends(self, tmp_path, monkeypatch):
+        """Multiple failures append separate entries to the same file."""
+        config_dir = tmp_path / "config"
+        config_dir.mkdir()
+        monkeypatch.setattr("undisorder.importer._config_dir", lambda: config_dir)
+
+        for i in range(2):
+            try:
+                raise ValueError(f"error {i}")
+            except ValueError as exc:
+                _log_failure(
+                    pathlib.PurePosixPath(f"dir{i}"), "audio",
+                    [pathlib.Path(f"/src/dir{i}/file.mp3")], exc,
+                )
+
+        log_path = config_dir / "import_failures.jsonl"
+        lines = log_path.read_text().strip().splitlines()
+        assert len(lines) == 2
+
+        entries = [json.loads(line) for line in lines]
+        assert entries[0]["error_message"] == "error 0"
+        assert entries[1]["error_message"] == "error 1"
+
+    def test_failure_contains_traceback(self, tmp_path, monkeypatch):
+        """The traceback field is non-empty and contains the exception message."""
+        config_dir = tmp_path / "config"
+        config_dir.mkdir()
+        monkeypatch.setattr("undisorder.importer._config_dir", lambda: config_dir)
+
+        try:
+            raise RuntimeError("something broke")
+        except RuntimeError as exc:
+            _log_failure(
+                pathlib.PurePosixPath("."), "photo_video",
+                [pathlib.Path("/src/photo.jpg")], exc,
+            )
+
+        log_path = config_dir / "import_failures.jsonl"
+        entry = json.loads(log_path.read_text().strip())
+        assert entry["traceback"]
+        assert "something broke" in entry["traceback"]
+
+    def test_failure_logged_during_import(self, tmp_path, monkeypatch, caplog):
+        """End-to-end: a batch error during import writes to the JSONL log."""
+        config_dir = tmp_path / "config"
+        config_dir.mkdir()
+        monkeypatch.setattr("undisorder.importer._config_dir", lambda: config_dir)
+
+        source = tmp_path / "source"
+        dir_a = source / "aaa"
+        dir_a.mkdir(parents=True)
+        (dir_a / "bad.jpg").write_bytes(b"\xff\xd8\xff\xd9bad")
+
+        args = MagicMock()
+        args.source = source
+        args.images_target = tmp_path / "photos"
+        args.video_target = tmp_path / "videos"
+        args.audio_target = tmp_path / "musik"
+        args.dry_run = False
+        args.move = False
+        args.geocoding = "off"
+        args.interactive = False
+        args.exclude = []
+        args.exclude_dir = []
+        args.select = False
+        args.update = False
+        (tmp_path / "photos").mkdir(exist_ok=True)
+        (tmp_path / "videos").mkdir(exist_ok=True)
+        (tmp_path / "musik").mkdir(exist_ok=True)
+
+        with patch("undisorder.importer.extract_batch") as mock_extract:
+            from undisorder.metadata import Metadata
+
+            import datetime
+            mock_extract.return_value = {
+                dir_a / "bad.jpg": Metadata(
+                    source_path=dir_a / "bad.jpg",
+                    date_taken=datetime.datetime(2024, 3, 15),
+                ),
+            }
+            # Make hash_file raise for all files
+            with patch("undisorder.importer.hash_file", side_effect=OSError("disk error")):
+                with caplog.at_level(logging.WARNING, logger="undisorder"):
+                    run_import(args)
+
+        # Failure log should exist with the error
+        log_path = config_dir / "import_failures.jsonl"
+        assert log_path.exists()
+        entry = json.loads(log_path.read_text().strip().splitlines()[0])
+        assert entry["error_type"] == "OSError"
+        assert entry["media_type"] == "photo_video"
+
+        # Summary warning should mention the log path
+        assert "batch(es) failed" in caplog.text
+        assert str(log_path) in caplog.text
