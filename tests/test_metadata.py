@@ -166,6 +166,57 @@ class TestExtract:
         assert m.gps_lon == pytest.approx(13.4050)
 
 
+class TestMtimeFallback:
+    """Test filesystem mtime as date fallback when no EXIF date is found."""
+
+    def test_mtime_fallback_when_no_exif_date(self, tmp_path: pathlib.Path):
+        """No EXIF date → mtime is used, date_from_mtime=True."""
+        photo = tmp_path / "photo.jpg"
+        photo.write_bytes(b"fake image")
+        import os
+        mtime = 1710500000.0  # 2024-03-15 ~13:33 UTC
+        os.utime(photo, (mtime, mtime))
+
+        raw = _make_exiftool_result(SourceFile=str(photo))
+        with patch("undisorder.metadata._run_exiftool", return_value=[raw]):
+            m = extract(photo)
+        assert m.date_taken is not None
+        assert m.date_taken.year == 2024
+        assert m.date_from_mtime is True
+
+    def test_exif_date_takes_precedence_over_mtime(self, tmp_path: pathlib.Path):
+        """EXIF date present → mtime ignored, date_from_mtime=False."""
+        photo = tmp_path / "photo.jpg"
+        photo.write_bytes(b"fake image")
+        import os
+        mtime = 1710500000.0
+        os.utime(photo, (mtime, mtime))
+
+        raw = _make_exiftool_result(
+            SourceFile=str(photo),
+            **{"EXIF:DateTimeOriginal": "2023:06:01 12:00:00"},
+        )
+        with patch("undisorder.metadata._run_exiftool", return_value=[raw]):
+            m = extract(photo)
+        assert m.date_taken == datetime.datetime(2023, 6, 1, 12, 0, 0)
+        assert m.date_from_mtime is False
+
+    def test_mtime_fallback_in_extract_batch(self, tmp_path: pathlib.Path):
+        """Batch extraction with files lacking EXIF date uses mtime."""
+        photo = tmp_path / "photo.jpg"
+        photo.write_bytes(b"fake image")
+        import os
+        mtime = 1710500000.0
+        os.utime(photo, (mtime, mtime))
+
+        raw = [_make_exiftool_result(SourceFile=str(photo))]
+        with patch("undisorder.metadata._run_exiftool", return_value=raw):
+            results = extract_batch([photo])
+        m = results[photo]
+        assert m.date_taken is not None
+        assert m.date_from_mtime is True
+
+
 class TestExtractBatch:
     """Test batch metadata extraction."""
 

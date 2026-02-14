@@ -41,11 +41,27 @@ def is_meaningful_dirname(name: str) -> bool:
     return True
 
 
-def _get_meaningful_source_dir(source_path: pathlib.Path) -> str | None:
-    """Extract a meaningful directory name from the source path."""
-    parent = source_path.parent.name
-    if is_meaningful_dirname(parent):
-        return parent
+def _get_meaningful_source_dir(
+    source_path: pathlib.Path,
+    source_root: pathlib.Path | None = None,
+) -> str | None:
+    """Extract a meaningful directory name from the source path.
+
+    When source_root is set, walks up from source_path.parent to source_root,
+    returning the first meaningful directory name found. Stops at source_root.
+    Without source_root, only checks the immediate parent (legacy behavior).
+    """
+    if source_root is None:
+        parent = source_path.parent.name
+        if is_meaningful_dirname(parent):
+            return parent
+        return None
+
+    current = source_path.parent
+    while current != source_root and current != current.parent:
+        if is_meaningful_dirname(current.name):
+            return current.name
+        current = current.parent
     return None
 
 
@@ -58,7 +74,7 @@ def _truncate_description(desc: str, max_words: int = 4) -> str:
     return result
 
 
-def suggest_dirname(meta: Metadata, *, place_name: str | None = None) -> str:
+def suggest_dirname(meta: Metadata, *, place_name: str | None = None, source_root: pathlib.Path | None = None) -> str:
     """Suggest a target directory name based on metadata.
 
     Priority order:
@@ -81,7 +97,7 @@ def suggest_dirname(meta: Metadata, *, place_name: str | None = None) -> str:
     topic: str | None = None
 
     # Priority 1: Meaningful source directory
-    source_dir = _get_meaningful_source_dir(meta.source_path)
+    source_dir = _get_meaningful_source_dir(meta.source_path, source_root=source_root)
     if source_dir:
         topic = source_dir
 
@@ -144,10 +160,11 @@ def determine_target_path(
     video_target: pathlib.Path,
     is_video: bool,
     place_name: str | None = None,
+    source_root: pathlib.Path | None = None,
 ) -> pathlib.Path:
     """Determine the full target path for a file."""
     base_target = video_target if is_video else images_target
-    dirname = suggest_dirname(meta, place_name=place_name)
+    dirname = suggest_dirname(meta, place_name=place_name, source_root=source_root)
     filename = meta.source_path.name
     return base_target / dirname / filename
 

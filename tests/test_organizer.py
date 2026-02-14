@@ -2,6 +2,7 @@
 
 from undisorder.audio_metadata import AudioMetadata
 from undisorder.metadata import Metadata
+from undisorder.organizer import _get_meaningful_source_dir
 from undisorder.organizer import determine_audio_target_path
 from undisorder.organizer import determine_target_path
 from undisorder.organizer import is_meaningful_dirname
@@ -67,6 +68,40 @@ class TestIsMeaningfulDirname:
 
     def test_empty_not_meaningful(self):
         assert is_meaningful_dirname("") is False
+
+
+class TestGetMeaningfulSourceDir:
+    """Test walking up the source directory hierarchy."""
+
+    def test_walks_up_to_meaningful_parent(self):
+        """root/Urlaub/DCIM/100APPLE/IMG.jpg → 'Urlaub'."""
+        path = pathlib.Path("/root/Urlaub/DCIM/100APPLE/IMG.jpg")
+        source_root = pathlib.Path("/root")
+        assert _get_meaningful_source_dir(path, source_root=source_root) == "Urlaub"
+
+    def test_stops_at_source_root(self):
+        """Meaningful name above source_root is ignored."""
+        path = pathlib.Path("/meaningful/root/DCIM/IMG.jpg")
+        source_root = pathlib.Path("/meaningful/root")
+        assert _get_meaningful_source_dir(path, source_root=source_root) is None
+
+    def test_immediate_parent_meaningful(self):
+        """Direct parent is meaningful → returned immediately."""
+        path = pathlib.Path("/root/Hochzeit/IMG.jpg")
+        source_root = pathlib.Path("/root")
+        assert _get_meaningful_source_dir(path, source_root=source_root) == "Hochzeit"
+
+    def test_no_meaningful_in_hierarchy(self):
+        """Only generic names → None."""
+        path = pathlib.Path("/root/DCIM/100APPLE/IMG.jpg")
+        source_root = pathlib.Path("/root")
+        assert _get_meaningful_source_dir(path, source_root=source_root) is None
+
+    def test_no_source_root_legacy_behavior(self):
+        """Without source_root, only check immediate parent."""
+        path = pathlib.Path("/root/Urlaub/DCIM/100APPLE/IMG.jpg")
+        # No source_root → only checks "100APPLE" (not meaningful)
+        assert _get_meaningful_source_dir(path) is None
 
 
 class TestSuggestDirname:

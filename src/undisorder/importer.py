@@ -40,6 +40,149 @@ def _source_is_newer(source_path: pathlib.Path, target_path: pathlib.Path) -> bo
     return source_path.stat().st_mtime > target_path.stat().st_mtime
 
 
+def _execute_photo_video_import(
+    to_import: list[tuple[pathlib.Path, str, bool, str | None, str | None]],
+    metadata_map: dict[pathlib.Path, Metadata],
+    args: argparse.Namespace,
+    geocoder,
+    img_db,
+    vid_db,
+) -> tuple[int, int]:
+    """Execute the actual copy/move for photo/video files. Returns (imported, updated)."""
+    imported = 0
+    updated = 0
+
+    # Separate updates from new files
+    update_entries = []
+    new_entries = []
+    for entry in to_import:
+        src_path, file_hash, is_video, old_hash, old_file_path = entry
+        if old_file_path is not None:
+            update_entries.append(entry)
+        else:
+            new_entries.append(entry)
+
+    # Process updates first (no interactive grouping)
+    for src_path, file_hash, is_video, old_hash, old_file_path in update_entries:
+        meta = metadata_map.get(src_path, Metadata(source_path=src_path))
+        db = vid_db if is_video else img_db
+        target_base = args.video_target if is_video else args.images_target
+
+        old_target = target_base / old_file_path
+        if old_target.exists():
+            if args.move:
+                shutil.move(str(src_path), str(old_target))
+            else:
+                shutil.copy2(str(src_path), str(old_target))
+
+            if old_hash is not None:
+                db.delete_by_hash_and_path(old_hash, old_file_path)
+            date_str = meta.date_taken.strftime("%Y:%m:%d %H:%M:%S") if meta.date_taken else None
+            db.insert(
+                hash=file_hash,
+                file_size=old_target.stat().st_size,
+                file_path=old_file_path,
+                date_taken=date_str,
+                source_path=str(src_path),
+            )
+            db.update_import(str(src_path), file_hash, old_file_path)
+            updated += 1
+
+    # Pre-compute dirnames and geocoding for new files
+    # Each entry: (src_path, file_hash, is_video, dirname, place_name)
+    resolved_new: list[tuple[pathlib.Path, str, bool, str, str | None]] = []
+    for src_path, file_hash, is_video, _, _ in new_entries:
+        meta = metadata_map.get(src_path, Metadata(source_path=src_path))
+        place_name = None
+        if meta.has_gps and meta.gps_lat is not None and meta.gps_lon is not None:
+            place_name = geocoder.reverse(meta.gps_lat, meta.gps_lon)
+        dirname = suggest_dirname(meta, place_name=place_name, source_root=args.source)
+        resolved_new.append((src_path, file_hash, is_video, dirname, place_name))
+
+    # Interactive mode: group by dirname and prompt once per group
+    if args.interactive and resolved_new:
+        groups: dict[str, list[tuple[pathlib.Path, str, bool, str | None]]] = {}
+        for src_path, file_hash, is_video, dirname, place_name in resolved_new:
+            groups.setdefault(dirname, []).append((src_path, file_hash, is_video, place_name))
+
+        for dirname, group_files in groups.items():
+            n = len(group_files)
+            label = "file" if n == 1 else "files"
+            names = [f.name for f, _, _, _ in group_files]
+            if n <= 5:
+                file_list = ", ".join(names)
+            else:
+                file_list = ", ".join(names[:5]) + f", ... +{n - 5} more"
+            user_input = input(
+                f"  {dirname}/ ({n} {label}: {file_list})\n"
+                f"  [Enter=accept, type new name, or 's' to skip]: "
+            ).strip()
+
+            if user_input == "s":
+                continue
+
+            effective_dirname = user_input if user_input else dirname
+            for src_path, file_hash, is_video, place_name in group_files:
+                target_base = args.video_target if is_video else args.images_target
+                target_path = target_base / effective_dirname / src_path.name
+                target_path = resolve_collision(target_path)
+
+                target_path.parent.mkdir(parents=True, exist_ok=True)
+                if args.move:
+                    shutil.move(str(src_path), str(target_path))
+                else:
+                    shutil.copy2(str(src_path), str(target_path))
+
+                db = vid_db if is_video else img_db
+                meta = metadata_map.get(src_path, Metadata(source_path=src_path))
+                rel_path = target_path.relative_to(target_base)
+                date_str = meta.date_taken.strftime("%Y:%m:%d %H:%M:%S") if meta.date_taken else None
+                db.insert(
+                    hash=file_hash,
+                    file_size=src_path.stat().st_size if not args.move else target_path.stat().st_size,
+                    file_path=str(rel_path),
+                    date_taken=date_str,
+                    source_path=str(src_path),
+                )
+                db.record_import(str(src_path), file_hash, str(rel_path))
+                imported += 1
+    else:
+        # Non-interactive: import directly
+        for src_path, file_hash, is_video, dirname, place_name in tqdm(resolved_new, desc="Importing"):
+            meta = metadata_map.get(src_path, Metadata(source_path=src_path))
+            target_base = args.video_target if is_video else args.images_target
+            target_path = determine_target_path(
+                meta=meta,
+                images_target=args.images_target,
+                video_target=args.video_target,
+                is_video=is_video,
+                place_name=place_name,
+                source_root=args.source,
+            )
+            target_path = resolve_collision(target_path)
+
+            target_path.parent.mkdir(parents=True, exist_ok=True)
+            if args.move:
+                shutil.move(str(src_path), str(target_path))
+            else:
+                shutil.copy2(str(src_path), str(target_path))
+
+            db = vid_db if is_video else img_db
+            rel_path = target_path.relative_to(target_base)
+            date_str = meta.date_taken.strftime("%Y:%m:%d %H:%M:%S") if meta.date_taken else None
+            db.insert(
+                hash=file_hash,
+                file_size=src_path.stat().st_size if not args.move else target_path.stat().st_size,
+                file_path=str(rel_path),
+                date_taken=date_str,
+                source_path=str(src_path),
+            )
+            db.record_import(str(src_path), file_hash, str(rel_path))
+            imported += 1
+
+    return imported, updated
+
+
 def _import_photo_video(args: argparse.Namespace, result) -> None:
     """Import photo/video files from source into the organized collection."""
     media_files = result.photos + result.videos
@@ -149,106 +292,56 @@ def _import_photo_video(args: argparse.Namespace, result) -> None:
     # Phase 3: Determine targets and execute
     logger.info(f"\n{'[DRY RUN] ' if args.dry_run else ''}Importing {len(to_import)} photo/video file(s) ...\n")
 
-    imported = 0
-    updated = 0
-    for src_path, file_hash, is_video, old_hash, old_file_path in tqdm(to_import, desc="Importing", disable=args.dry_run):
-        meta = metadata_map.get(src_path, Metadata(source_path=src_path))
-        db = vid_db if is_video else img_db
-        target_base = args.video_target if is_video else args.images_target
+    if args.dry_run:
+        # Dry run: compute all targets and display grouped by directory
+        grouped: dict[str, list[str]] = {}  # dirname -> [filenames]
+        updates: list[str] = []
+        for src_path, file_hash, is_video, old_hash, old_file_path in to_import:
+            meta = metadata_map.get(src_path, Metadata(source_path=src_path))
+            target_base = args.video_target if is_video else args.images_target
 
-        # Update: overwrite old target if it exists
-        if old_file_path is not None:
-            old_target = target_base / old_file_path
-            if old_target.exists():
-                if args.dry_run:
-                    logger.info(f"  [UPDATE] {src_path} -> {old_target}")
-                    continue
-
-                if args.move:
-                    shutil.move(str(src_path), str(old_target))
-                else:
-                    shutil.copy2(str(src_path), str(old_target))
-
-                # Update DB records
-                if old_hash is not None:
-                    db.delete_by_hash_and_path(old_hash, old_file_path)
-                date_str = meta.date_taken.strftime("%Y:%m:%d %H:%M:%S") if meta.date_taken else None
-                db.insert(
-                    hash=file_hash,
-                    file_size=old_target.stat().st_size,
-                    file_path=old_file_path,
-                    date_taken=date_str,
-                    source_path=str(src_path),
-                )
-                db.update_import(str(src_path), file_hash, old_file_path)
-                updated += 1
+            if old_file_path is not None:
+                old_target = target_base / old_file_path
+                updates.append(f"  [UPDATE] {src_path} -> {old_target}")
                 continue
-            # Old target doesn't exist — fall through to normal import
 
-        # Geocode if applicable
-        place_name = None
-        if meta.has_gps and meta.gps_lat is not None and meta.gps_lon is not None:
-            place_name = geocoder.reverse(meta.gps_lat, meta.gps_lon)
+            place_name = None
+            if meta.has_gps and meta.gps_lat is not None and meta.gps_lon is not None:
+                place_name = geocoder.reverse(meta.gps_lat, meta.gps_lon)
 
-        # Determine target
-        target_path = determine_target_path(
-            meta=meta,
-            images_target=args.images_target,
-            video_target=args.video_target,
-            is_video=is_video,
-            place_name=place_name,
+            dirname = suggest_dirname(meta, place_name=place_name, source_root=args.source)
+            grouped.setdefault(dirname, []).append(src_path.name)
+
+        for dirname, filenames in grouped.items():
+            n = len(filenames)
+            label = "file" if n == 1 else "files"
+            logger.info(f"  {dirname}/ ({n} {label})")
+            for name in filenames:
+                logger.info(f"    {name}")
+
+        for line in updates:
+            logger.info(line)
+
+        logger.info(f"\n[DRY RUN] Would import {len(to_import)} photo/video file(s).")
+    else:
+        # Normal import
+        imported, updated = _execute_photo_video_import(
+            to_import, metadata_map, args, geocoder, img_db, vid_db,
         )
 
-        if args.interactive and not args.dry_run:
-            dirname = suggest_dirname(meta, place_name=place_name)
-            user_input = input(f"  {src_path.name} -> {dirname}/ [Enter=accept, or type new name]: ").strip()
-            if user_input:
-                target_path = target_base / user_input / src_path.name
-
-        # Resolve collisions
-        target_path = resolve_collision(target_path)
-
-        if args.dry_run:
-            logger.info(f"  {src_path} -> {target_path}")
-            continue
-
-        # Execute copy/move
-        target_path.parent.mkdir(parents=True, exist_ok=True)
-        if args.move:
-            shutil.move(str(src_path), str(target_path))
-        else:
-            shutil.copy2(str(src_path), str(target_path))
-
-        # Update hash DB
-        rel_path = target_path.relative_to(target_base)
-        date_str = meta.date_taken.strftime("%Y:%m:%d %H:%M:%S") if meta.date_taken else None
-        db.insert(
-            hash=file_hash,
-            file_size=src_path.stat().st_size if not args.move else target_path.stat().st_size,
-            file_path=str(rel_path),
-            date_taken=date_str,
-            source_path=str(src_path),
-        )
-        db.record_import(str(src_path), file_hash, str(rel_path))
-        imported += 1
-
-    # Phase 4: Record source dupes
-    if not args.dry_run:
+        # Record source dupes
         for dup_path, dup_hash in source_dupes:
             is_video = classify(dup_path) is FileType.VIDEO
             db = vid_db if is_video else img_db
             db.record_import(str(dup_path), dup_hash)
 
-    img_db.close()
-    vid_db.close()
-
-    if args.dry_run:
-        logger.info(f"\n[DRY RUN] Would import {len(to_import)} photo/video file(s).")
-    else:
         msg = f"\nImported {imported} photo/video file(s)."
         if updated:
             msg += f" Updated {updated} file(s)."
         logger.info(msg)
+
+    img_db.close()
+    vid_db.close()
 
 
 def _import_audio(args: argparse.Namespace, result) -> None:
@@ -343,73 +436,89 @@ def _import_audio(args: argparse.Namespace, result) -> None:
     # Phase 3: Import + record
     logger.info(f"\n{'[DRY RUN] ' if args.dry_run else ''}Importing {len(to_import)} audio file(s) ...\n")
 
-    imported = 0
-    updated = 0
-    for src_path, file_hash, old_hash, old_file_path in tqdm(to_import, desc="Importing audio", disable=args.dry_run):
-        meta = audio_meta_map.get(src_path, AudioMetadata(source_path=src_path))
+    if args.dry_run:
+        # Dry run: compute all targets and display grouped
+        grouped: dict[str, list[str]] = {}  # dirname -> [filenames]
+        updates: list[str] = []
+        for src_path, file_hash, old_hash, old_file_path in to_import:
+            meta = audio_meta_map.get(src_path, AudioMetadata(source_path=src_path))
 
-        # Update: overwrite old target if it exists
-        if old_file_path is not None:
-            old_target = args.audio_target / old_file_path
-            if old_target.exists():
-                if args.dry_run:
-                    logger.info(f"  [UPDATE] {src_path} -> {old_target}")
-                    continue
-
-                if args.move:
-                    shutil.move(str(src_path), str(old_target))
-                else:
-                    shutil.copy2(str(src_path), str(old_target))
-
-                if old_hash is not None:
-                    aud_db.delete_by_hash_and_path(old_hash, old_file_path)
-                aud_db.insert(
-                    hash=file_hash,
-                    file_size=old_target.stat().st_size,
-                    file_path=old_file_path,
-                    source_path=str(src_path),
-                )
-                aud_db.update_import(str(src_path), file_hash, old_file_path)
-                updated += 1
+            if old_file_path is not None:
+                old_target = args.audio_target / old_file_path
+                updates.append(f"  [UPDATE] {src_path} -> {old_target}")
                 continue
 
-        target_path = determine_audio_target_path(meta, args.audio_target)
-        target_path = resolve_collision(target_path)
+            target_path = determine_audio_target_path(meta, args.audio_target)
+            dirname = str(target_path.parent.relative_to(args.audio_target))
+            grouped.setdefault(dirname, []).append(target_path.name)
 
-        if args.dry_run:
-            logger.info(f"  {src_path} -> {target_path}")
-            continue
+        for dirname, filenames in grouped.items():
+            n = len(filenames)
+            label = "file" if n == 1 else "files"
+            logger.info(f"  {dirname}/ ({n} {label})")
+            for name in filenames:
+                logger.info(f"    {name}")
 
-        target_path.parent.mkdir(parents=True, exist_ok=True)
-        if args.move:
-            shutil.move(str(src_path), str(target_path))
-        else:
-            shutil.copy2(str(src_path), str(target_path))
+        for line in updates:
+            logger.info(line)
 
-        rel_path = target_path.relative_to(args.audio_target)
-        aud_db.insert(
-            hash=file_hash,
-            file_size=src_path.stat().st_size if not args.move else target_path.stat().st_size,
-            file_path=str(rel_path),
-            source_path=str(src_path),
-        )
-        aud_db.record_import(str(src_path), file_hash, str(rel_path))
-        imported += 1
+        logger.info(f"\n[DRY RUN] Would import {len(to_import)} audio file(s).")
+    else:
+        imported = 0
+        updated = 0
+        for src_path, file_hash, old_hash, old_file_path in tqdm(to_import, desc="Importing audio"):
+            meta = audio_meta_map.get(src_path, AudioMetadata(source_path=src_path))
 
-    # Phase 4: Record source dupes
-    if not args.dry_run:
+            # Update: overwrite old target if it exists
+            if old_file_path is not None:
+                old_target = args.audio_target / old_file_path
+                if old_target.exists():
+                    if args.move:
+                        shutil.move(str(src_path), str(old_target))
+                    else:
+                        shutil.copy2(str(src_path), str(old_target))
+
+                    if old_hash is not None:
+                        aud_db.delete_by_hash_and_path(old_hash, old_file_path)
+                    aud_db.insert(
+                        hash=file_hash,
+                        file_size=old_target.stat().st_size,
+                        file_path=old_file_path,
+                        source_path=str(src_path),
+                    )
+                    aud_db.update_import(str(src_path), file_hash, old_file_path)
+                    updated += 1
+                    continue
+
+            target_path = determine_audio_target_path(meta, args.audio_target)
+            target_path = resolve_collision(target_path)
+
+            target_path.parent.mkdir(parents=True, exist_ok=True)
+            if args.move:
+                shutil.move(str(src_path), str(target_path))
+            else:
+                shutil.copy2(str(src_path), str(target_path))
+
+            rel_path = target_path.relative_to(args.audio_target)
+            aud_db.insert(
+                hash=file_hash,
+                file_size=src_path.stat().st_size if not args.move else target_path.stat().st_size,
+                file_path=str(rel_path),
+                source_path=str(src_path),
+            )
+            aud_db.record_import(str(src_path), file_hash, str(rel_path))
+            imported += 1
+
+        # Record source dupes
         for dup_path, dup_hash in source_dupes:
             aud_db.record_import(str(dup_path), dup_hash)
 
-    aud_db.close()
-
-    if args.dry_run:
-        logger.info(f"\n[DRY RUN] Would import {len(to_import)} audio file(s).")
-    else:
         msg = f"\nImported {imported} audio file(s)."
         if updated:
             msg += f" Updated {updated} file(s)."
         logger.info(msg)
+
+    aud_db.close()
 
 
 def run_import(args: argparse.Namespace) -> None:

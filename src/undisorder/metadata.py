@@ -23,6 +23,7 @@ class Metadata:
     description: str | None = None
     user_comment: str | None = None
     subject: list[str] = field(default_factory=list)
+    date_from_mtime: bool = False
 
     @property
     def has_gps(self) -> bool:
@@ -134,9 +135,16 @@ def _parse_subject(raw: dict[str, object]) -> list[str]:
 def _parse_one(raw: dict[str, object], path: pathlib.Path) -> Metadata:
     """Parse a single exiftool JSON result into a Metadata object."""
     gps_lat, gps_lon = _parse_gps(raw)
+    date_taken = _parse_date(raw)
+    date_from_mtime = False
+    if date_taken is None and path.exists():
+        mtime = path.stat().st_mtime
+        date_taken = datetime.datetime.fromtimestamp(mtime)
+        date_from_mtime = True
     return Metadata(
         source_path=path,
-        date_taken=_parse_date(raw),
+        date_taken=date_taken,
+        date_from_mtime=date_from_mtime,
         gps_lat=gps_lat,
         gps_lon=gps_lon,
         keywords=_parse_keywords(raw),

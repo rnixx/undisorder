@@ -436,6 +436,328 @@ class TestImportAudio:
         assert "audio" in caplog.text.lower()
 
 
+class TestDryRunGrouped:
+    """Test that dry-run output is grouped by target directory."""
+
+    def _make_args(self, tmp_path, **overrides):
+        source = tmp_path / "source"
+        source.mkdir(exist_ok=True)
+        args = MagicMock()
+        args.source = source
+        args.images_target = tmp_path / "photos"
+        args.video_target = tmp_path / "videos"
+        args.audio_target = tmp_path / "musik"
+        args.dry_run = True
+        args.move = False
+        args.geocoding = "off"
+        args.interactive = False
+        args.identify = False
+        args.acoustid_key = None
+        args.exclude = []
+        args.exclude_dir = []
+        args.select = False
+        args.update = False
+        for k, v in overrides.items():
+            setattr(args, k, v)
+        (tmp_path / "photos").mkdir(exist_ok=True)
+        (tmp_path / "videos").mkdir(exist_ok=True)
+        (tmp_path / "musik").mkdir(exist_ok=True)
+        return args
+
+    def test_dry_run_groups_by_target_directory(self, tmp_path, caplog):
+        """3 files same month → grouped as '(3 files)' in output."""
+        source = tmp_path / "source"
+        source.mkdir(exist_ok=True)
+        for name in ["a.jpg", "b.jpg", "c.jpg"]:
+            (source / name).write_bytes(b"\xff\xd8\xff\xd9" + name.encode())
+
+        args = self._make_args(tmp_path)
+
+        with patch("undisorder.importer.extract_batch") as mock_extract:
+            from undisorder.metadata import Metadata
+
+            import datetime
+            mock_extract.return_value = {
+                source / name: Metadata(
+                    source_path=source / name,
+                    date_taken=datetime.datetime(2024, 3, 15),
+                )
+                for name in ["a.jpg", "b.jpg", "c.jpg"]
+            }
+            with caplog.at_level(logging.INFO, logger="undisorder"):
+                run_import(args)
+
+        assert "(3 files)" in caplog.text
+        assert "a.jpg" in caplog.text
+        assert "b.jpg" in caplog.text
+        assert "c.jpg" in caplog.text
+
+    def test_dry_run_multiple_groups(self, tmp_path, caplog):
+        """2 different months → two separate groups."""
+        source = tmp_path / "source"
+        source.mkdir(exist_ok=True)
+        (source / "march.jpg").write_bytes(b"\xff\xd8\xff\xd9march")
+        (source / "june.jpg").write_bytes(b"\xff\xd8\xff\xd9junexx")
+
+        args = self._make_args(tmp_path)
+
+        with patch("undisorder.importer.extract_batch") as mock_extract:
+            from undisorder.metadata import Metadata
+
+            import datetime
+            mock_extract.return_value = {
+                source / "march.jpg": Metadata(
+                    source_path=source / "march.jpg",
+                    date_taken=datetime.datetime(2024, 3, 15),
+                ),
+                source / "june.jpg": Metadata(
+                    source_path=source / "june.jpg",
+                    date_taken=datetime.datetime(2024, 6, 20),
+                ),
+            }
+            with caplog.at_level(logging.INFO, logger="undisorder"):
+                run_import(args)
+
+        assert "2024-03" in caplog.text
+        assert "2024-06" in caplog.text
+
+    def test_audio_dry_run_grouped(self, tmp_path, caplog):
+        """2 songs same artist/album → grouped."""
+        source = tmp_path / "source"
+        source.mkdir(exist_ok=True)
+        (source / "song1.mp3").write_bytes(b"\xff\xfb\x90\x00audio1xx")
+        (source / "song2.mp3").write_bytes(b"\xff\xfb\x90\x00audio2xx")
+
+        args = self._make_args(tmp_path)
+
+        audio_meta1 = AudioMetadata(
+            source_path=source / "song1.mp3",
+            artist="Artist", album="Album", title="Song1", track_number=1,
+        )
+        audio_meta2 = AudioMetadata(
+            source_path=source / "song2.mp3",
+            artist="Artist", album="Album", title="Song2", track_number=2,
+        )
+        with patch("undisorder.importer.extract_audio_batch", return_value={
+            source / "song1.mp3": audio_meta1,
+            source / "song2.mp3": audio_meta2,
+        }):
+            with caplog.at_level(logging.INFO, logger="undisorder"):
+                run_import(args)
+
+        assert "(2 files)" in caplog.text
+        assert "Artist" in caplog.text
+
+    def test_dry_run_single_file_singular(self, tmp_path, caplog):
+        """1 file → '(1 file)' (singular)."""
+        source = tmp_path / "source"
+        source.mkdir(exist_ok=True)
+        (source / "photo.jpg").write_bytes(b"\xff\xd8\xff\xd9single")
+
+        args = self._make_args(tmp_path)
+
+        with patch("undisorder.importer.extract_batch") as mock_extract:
+            from undisorder.metadata import Metadata
+
+            import datetime
+            mock_extract.return_value = {
+                source / "photo.jpg": Metadata(
+                    source_path=source / "photo.jpg",
+                    date_taken=datetime.datetime(2024, 3, 15),
+                )
+            }
+            with caplog.at_level(logging.INFO, logger="undisorder"):
+                run_import(args)
+
+        assert "(1 file)" in caplog.text
+
+
+class TestInteractiveBatch:
+    """Test batch interactive confirmation grouped by dirname."""
+
+    def _make_args(self, tmp_path, **overrides):
+        source = tmp_path / "source"
+        source.mkdir(exist_ok=True)
+        args = MagicMock()
+        args.source = source
+        args.images_target = tmp_path / "photos"
+        args.video_target = tmp_path / "videos"
+        args.audio_target = tmp_path / "musik"
+        args.dry_run = False
+        args.move = False
+        args.geocoding = "off"
+        args.interactive = True
+        args.identify = False
+        args.acoustid_key = None
+        args.exclude = []
+        args.exclude_dir = []
+        args.select = False
+        args.update = False
+        for k, v in overrides.items():
+            setattr(args, k, v)
+        (tmp_path / "photos").mkdir(exist_ok=True)
+        (tmp_path / "videos").mkdir(exist_ok=True)
+        (tmp_path / "musik").mkdir(exist_ok=True)
+        return args
+
+    def test_interactive_groups_by_dirname(self, tmp_path):
+        """2 files same dirname, Enter → both imported."""
+        source = tmp_path / "source"
+        source.mkdir(exist_ok=True)
+        (source / "a.jpg").write_bytes(b"\xff\xd8\xff\xd9aaa")
+        (source / "b.jpg").write_bytes(b"\xff\xd8\xff\xd9bbb")
+
+        args = self._make_args(tmp_path)
+
+        with patch("undisorder.importer.extract_batch") as mock_extract:
+            from undisorder.metadata import Metadata
+
+            import datetime
+            mock_extract.return_value = {
+                source / "a.jpg": Metadata(
+                    source_path=source / "a.jpg",
+                    date_taken=datetime.datetime(2024, 3, 15),
+                ),
+                source / "b.jpg": Metadata(
+                    source_path=source / "b.jpg",
+                    date_taken=datetime.datetime(2024, 3, 20),
+                ),
+            }
+            with patch("builtins.input", return_value=""):
+                run_import(args)
+
+        found_files = [
+            f for dirpath, _, files in os.walk(tmp_path / "photos")
+            for f in files if not f.endswith(".db")
+        ]
+        assert len(found_files) == 2
+
+    def test_interactive_rename_group(self, tmp_path):
+        """User types new name → all files in group use it."""
+        source = tmp_path / "source"
+        source.mkdir(exist_ok=True)
+        (source / "a.jpg").write_bytes(b"\xff\xd8\xff\xd9aaa")
+        (source / "b.jpg").write_bytes(b"\xff\xd8\xff\xd9bbb")
+
+        args = self._make_args(tmp_path)
+
+        with patch("undisorder.importer.extract_batch") as mock_extract:
+            from undisorder.metadata import Metadata
+
+            import datetime
+            mock_extract.return_value = {
+                source / "a.jpg": Metadata(
+                    source_path=source / "a.jpg",
+                    date_taken=datetime.datetime(2024, 3, 15),
+                ),
+                source / "b.jpg": Metadata(
+                    source_path=source / "b.jpg",
+                    date_taken=datetime.datetime(2024, 3, 20),
+                ),
+            }
+            with patch("builtins.input", return_value="MyTrip"):
+                run_import(args)
+
+        # Both files should be under MyTrip/
+        found_files = []
+        for dirpath, _, files in os.walk(tmp_path / "photos"):
+            for f in files:
+                if not f.endswith(".db"):
+                    found_files.append(os.path.join(dirpath, f))
+        assert len(found_files) == 2
+        assert all("MyTrip" in f for f in found_files)
+
+    def test_interactive_skip_group(self, tmp_path):
+        """User types 's' → nothing imported."""
+        source = tmp_path / "source"
+        source.mkdir(exist_ok=True)
+        (source / "a.jpg").write_bytes(b"\xff\xd8\xff\xd9aaa")
+
+        args = self._make_args(tmp_path)
+
+        with patch("undisorder.importer.extract_batch") as mock_extract:
+            from undisorder.metadata import Metadata
+
+            import datetime
+            mock_extract.return_value = {
+                source / "a.jpg": Metadata(
+                    source_path=source / "a.jpg",
+                    date_taken=datetime.datetime(2024, 3, 15),
+                ),
+            }
+            with patch("builtins.input", return_value="s"):
+                run_import(args)
+
+        found_files = [
+            f for dirpath, _, files in os.walk(tmp_path / "photos")
+            for f in files if not f.endswith(".db")
+        ]
+        assert len(found_files) == 0
+
+    def test_interactive_multiple_groups(self, tmp_path):
+        """2 groups, different decisions: accept one, skip another."""
+        source = tmp_path / "source"
+        source.mkdir(exist_ok=True)
+        (source / "march.jpg").write_bytes(b"\xff\xd8\xff\xd9march")
+        (source / "june.jpg").write_bytes(b"\xff\xd8\xff\xd9junexx")
+
+        args = self._make_args(tmp_path)
+
+        with patch("undisorder.importer.extract_batch") as mock_extract:
+            from undisorder.metadata import Metadata
+
+            import datetime
+            mock_extract.return_value = {
+                source / "march.jpg": Metadata(
+                    source_path=source / "march.jpg",
+                    date_taken=datetime.datetime(2024, 3, 15),
+                ),
+                source / "june.jpg": Metadata(
+                    source_path=source / "june.jpg",
+                    date_taken=datetime.datetime(2024, 6, 20),
+                ),
+            }
+            # Accept first group, skip second
+            with patch("builtins.input", side_effect=["", "s"]):
+                run_import(args)
+
+        found_files = [
+            f for dirpath, _, files in os.walk(tmp_path / "photos")
+            for f in files if not f.endswith(".db")
+        ]
+        assert len(found_files) == 1
+
+    def test_interactive_prompt_shows_file_count(self, tmp_path, caplog):
+        """Prompt contains file count."""
+        source = tmp_path / "source"
+        source.mkdir(exist_ok=True)
+        (source / "a.jpg").write_bytes(b"\xff\xd8\xff\xd9aaa")
+        (source / "b.jpg").write_bytes(b"\xff\xd8\xff\xd9bbb")
+
+        args = self._make_args(tmp_path)
+
+        with patch("undisorder.importer.extract_batch") as mock_extract:
+            from undisorder.metadata import Metadata
+
+            import datetime
+            mock_extract.return_value = {
+                source / "a.jpg": Metadata(
+                    source_path=source / "a.jpg",
+                    date_taken=datetime.datetime(2024, 3, 15),
+                ),
+                source / "b.jpg": Metadata(
+                    source_path=source / "b.jpg",
+                    date_taken=datetime.datetime(2024, 3, 20),
+                ),
+            }
+            with patch("builtins.input", return_value="") as mock_input:
+                run_import(args)
+
+            # The prompt should mention the file count
+            prompt = mock_input.call_args[0][0]
+            assert "2 files" in prompt
+
+
 class TestImportExclude:
     """Test --exclude and --exclude-dir filtering in import."""
 
