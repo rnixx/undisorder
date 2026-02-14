@@ -64,8 +64,9 @@ def _import_photo_video(args: argparse.Namespace, result) -> None:
     geocoder = Geocoder(geocoding_mode)
 
     # Set up hash DBs for targets
-    args.images_target.mkdir(parents=True, exist_ok=True)
-    args.video_target.mkdir(parents=True, exist_ok=True)
+    if not args.dry_run:
+        args.images_target.mkdir(parents=True, exist_ok=True)
+        args.video_target.mkdir(parents=True, exist_ok=True)
     img_db = HashDB(args.images_target)
     vid_db = HashDB(args.video_target)
 
@@ -270,7 +271,8 @@ def _import_audio(args: argparse.Namespace, result) -> None:
             audio_meta_map[path] = identify_audio(path, meta, api_key=acoustid_key)
 
     # Set up hash DB for audio target
-    args.audio_target.mkdir(parents=True, exist_ok=True)
+    if not args.dry_run:
+        args.audio_target.mkdir(parents=True, exist_ok=True)
     aud_db = HashDB(args.audio_target)
 
     # Phase 1: Deduplicate source files — keep oldest per hash, track dupes
