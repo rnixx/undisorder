@@ -1,4 +1,5 @@
 *egg-info
 /.claude
+/build/
 /venv/
 __pycache__
