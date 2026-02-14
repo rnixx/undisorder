@@ -7,8 +7,11 @@ from dataclasses import field
 
 import datetime
 import json
+import logging
 import pathlib
 import subprocess
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -52,7 +55,9 @@ def _run_exiftool(paths: list[pathlib.Path]) -> list[dict[str, object]]:
         "-G",  # group names in tags
         *[str(p) for p in paths],
     ]
-    result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if not result.stdout.strip():
+        return []
     return json.loads(result.stdout)
 
 
@@ -162,13 +167,17 @@ def extract(path: pathlib.Path) -> Metadata:
     return _parse_one(results[0], path)
 
 
-def extract_batch(paths: list[pathlib.Path]) -> dict[pathlib.Path, Metadata]:
-    """Extract metadata from multiple files in one exiftool call."""
+def extract_batch(paths: list[pathlib.Path], batch_size: int = 100) -> dict[pathlib.Path, Metadata]:
+    """Extract metadata from multiple files, calling exiftool in batches."""
     if not paths:
         return {}
-    results = _run_exiftool(paths)
     out: dict[pathlib.Path, Metadata] = {}
-    for raw in results:
-        source = pathlib.Path(str(raw.get("SourceFile", "")))
-        out[source] = _parse_one(raw, source)
+    total = len(paths)
+    for i in range(0, total, batch_size):
+        chunk = paths[i : i + batch_size]
+        logger.info(f"Extracting metadata ... {min(i + batch_size, total)}/{total}")
+        results = _run_exiftool(chunk)
+        for raw in results:
+            source = pathlib.Path(str(raw.get("SourceFile", "")))
+            out[source] = _parse_one(raw, source)
     return out

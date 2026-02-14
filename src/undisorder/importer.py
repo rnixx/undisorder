@@ -2,13 +2,11 @@
 
 from __future__ import annotations
 
-from tqdm import tqdm
 from undisorder.audio_metadata import AudioMetadata
 from undisorder.audio_metadata import extract_audio_batch
 from undisorder.geocoder import Geocoder
 from undisorder.geocoder import GeocodingMode
 from undisorder.hashdb import HashDB
-from undisorder.hasher import find_duplicates
 from undisorder.hasher import hash_file
 from undisorder.metadata import extract_batch
 from undisorder.metadata import Metadata
@@ -35,209 +33,63 @@ import shutil
 logger = logging.getLogger(__name__)
 
 
+def _group_by_source_dir(
+    files: list[pathlib.Path], source_root: pathlib.Path,
+) -> list[tuple[pathlib.PurePosixPath, list[pathlib.Path]]]:
+    """Group files by parent directory relative to source_root.
+
+    Returns list of (rel_dir, [files]) sorted deepest-first, then alphabetically.
+    """
+    groups: dict[pathlib.PurePosixPath, list[pathlib.Path]] = {}
+    for f in files:
+        rel = pathlib.PurePosixPath(f.parent.relative_to(source_root))
+        groups.setdefault(rel, []).append(f)
+
+    # Sort: deepest first (most path parts), then alphabetical
+    return sorted(groups.items(), key=lambda item: (-len(item[0].parts), item[0]))
+
+
+def _iter_batches(
+    dir_groups: list[tuple[pathlib.PurePosixPath, list[pathlib.Path]]],
+    batch_size: int,
+) -> list[tuple[pathlib.PurePosixPath, list[pathlib.Path]]]:
+    """Slice directory groups into batches of at most batch_size files.
+
+    Small directories pass through as-is. Large directories yield multiple chunks.
+    """
+    batches: list[tuple[pathlib.PurePosixPath, list[pathlib.Path]]] = []
+    for rel_dir, files in dir_groups:
+        for i in range(0, len(files), batch_size):
+            batches.append((rel_dir, files[i : i + batch_size]))
+    return batches
+
+
 def _source_is_newer(source_path: pathlib.Path, target_path: pathlib.Path) -> bool:
     """Check if source file mtime is strictly newer than target file mtime."""
     return source_path.stat().st_mtime > target_path.stat().st_mtime
 
 
-def _execute_photo_video_import(
-    to_import: list[tuple[pathlib.Path, str, bool, str | None, str | None]],
-    metadata_map: dict[pathlib.Path, Metadata],
+def _import_photo_video_batch(
+    batch: list[pathlib.Path],
     args: argparse.Namespace,
     geocoder,
-    img_db,
-    vid_db,
+    img_db: HashDB,
+    vid_db: HashDB,
 ) -> tuple[int, int]:
-    """Execute the actual copy/move for photo/video files. Returns (imported, updated)."""
+    """Process one batch of photo/video files: metadata → hash → dedup → import.
+
+    Returns (imported, skipped).
+    """
+    metadata_map = extract_batch(batch)
+
     imported = 0
-    updated = 0
-
-    # Separate updates from new files
-    update_entries = []
-    new_entries = []
-    for entry in to_import:
-        src_path, file_hash, is_video, old_hash, old_file_path = entry
-        if old_file_path is not None:
-            update_entries.append(entry)
-        else:
-            new_entries.append(entry)
-
-    # Process updates first (no interactive grouping)
-    for src_path, file_hash, is_video, old_hash, old_file_path in update_entries:
-        meta = metadata_map.get(src_path, Metadata(source_path=src_path))
-        db = vid_db if is_video else img_db
-        target_base = args.video_target if is_video else args.images_target
-
-        old_target = target_base / old_file_path
-        if old_target.exists():
-            if args.move:
-                shutil.move(str(src_path), str(old_target))
-            else:
-                shutil.copy2(str(src_path), str(old_target))
-
-            if old_hash is not None:
-                db.delete_by_hash_and_path(old_hash, old_file_path)
-            date_str = meta.date_taken.strftime("%Y:%m:%d %H:%M:%S") if meta.date_taken else None
-            db.insert(
-                hash=file_hash,
-                file_size=old_target.stat().st_size,
-                file_path=old_file_path,
-                date_taken=date_str,
-                source_path=str(src_path),
-            )
-            db.update_import(str(src_path), file_hash, old_file_path)
-            updated += 1
-
-    # Pre-compute dirnames and geocoding for new files
-    # Each entry: (src_path, file_hash, is_video, dirname, place_name)
-    resolved_new: list[tuple[pathlib.Path, str, bool, str, str | None]] = []
-    for src_path, file_hash, is_video, _, _ in new_entries:
-        meta = metadata_map.get(src_path, Metadata(source_path=src_path))
-        place_name = None
-        if meta.has_gps and meta.gps_lat is not None and meta.gps_lon is not None:
-            place_name = geocoder.reverse(meta.gps_lat, meta.gps_lon)
-        dirname = suggest_dirname(meta, place_name=place_name, source_root=args.source)
-        resolved_new.append((src_path, file_hash, is_video, dirname, place_name))
-
-    # Interactive mode: group by dirname and prompt once per group
-    if args.interactive and resolved_new:
-        groups: dict[str, list[tuple[pathlib.Path, str, bool, str | None]]] = {}
-        for src_path, file_hash, is_video, dirname, place_name in resolved_new:
-            groups.setdefault(dirname, []).append((src_path, file_hash, is_video, place_name))
-
-        for dirname, group_files in groups.items():
-            n = len(group_files)
-            label = "file" if n == 1 else "files"
-            names = [f.name for f, _, _, _ in group_files]
-            if n <= 5:
-                file_list = ", ".join(names)
-            else:
-                file_list = ", ".join(names[:5]) + f", ... +{n - 5} more"
-            user_input = input(
-                f"  {dirname}/ ({n} {label}: {file_list})\n"
-                f"  [Enter=accept, type new name, or 's' to skip]: "
-            ).strip()
-
-            if user_input == "s":
-                continue
-
-            effective_dirname = user_input if user_input else dirname
-            for src_path, file_hash, is_video, place_name in group_files:
-                target_base = args.video_target if is_video else args.images_target
-                target_path = target_base / effective_dirname / src_path.name
-                target_path = resolve_collision(target_path)
-
-                target_path.parent.mkdir(parents=True, exist_ok=True)
-                if args.move:
-                    shutil.move(str(src_path), str(target_path))
-                else:
-                    shutil.copy2(str(src_path), str(target_path))
-
-                db = vid_db if is_video else img_db
-                meta = metadata_map.get(src_path, Metadata(source_path=src_path))
-                rel_path = target_path.relative_to(target_base)
-                date_str = meta.date_taken.strftime("%Y:%m:%d %H:%M:%S") if meta.date_taken else None
-                db.insert(
-                    hash=file_hash,
-                    file_size=src_path.stat().st_size if not args.move else target_path.stat().st_size,
-                    file_path=str(rel_path),
-                    date_taken=date_str,
-                    source_path=str(src_path),
-                )
-                db.record_import(str(src_path), file_hash, str(rel_path))
-                imported += 1
-    else:
-        # Non-interactive: import directly
-        for src_path, file_hash, is_video, dirname, place_name in tqdm(resolved_new, desc="Importing"):
-            meta = metadata_map.get(src_path, Metadata(source_path=src_path))
-            target_base = args.video_target if is_video else args.images_target
-            target_path = determine_target_path(
-                meta=meta,
-                images_target=args.images_target,
-                video_target=args.video_target,
-                is_video=is_video,
-                place_name=place_name,
-                source_root=args.source,
-            )
-            target_path = resolve_collision(target_path)
-
-            target_path.parent.mkdir(parents=True, exist_ok=True)
-            if args.move:
-                shutil.move(str(src_path), str(target_path))
-            else:
-                shutil.copy2(str(src_path), str(target_path))
-
-            db = vid_db if is_video else img_db
-            rel_path = target_path.relative_to(target_base)
-            date_str = meta.date_taken.strftime("%Y:%m:%d %H:%M:%S") if meta.date_taken else None
-            db.insert(
-                hash=file_hash,
-                file_size=src_path.stat().st_size if not args.move else target_path.stat().st_size,
-                file_path=str(rel_path),
-                date_taken=date_str,
-                source_path=str(src_path),
-            )
-            db.record_import(str(src_path), file_hash, str(rel_path))
-            imported += 1
-
-    return imported, updated
-
-
-def _import_photo_video(args: argparse.Namespace, result) -> None:
-    """Import photo/video files from source into the organized collection."""
-    media_files = result.photos + result.videos
-    if not media_files:
-        return
-
-    logger.info(f"Found {len(media_files)} photo/video files ({len(result.photos)} photos, {len(result.videos)} videos)")
-
-    # Extract metadata
-    logger.info("Extracting metadata ...")
-    metadata_map = extract_batch(media_files)
-
-    # Find duplicates in source
-    source_dupes_groups = find_duplicates(media_files)
-    if source_dupes_groups:
-        logger.info(f"\nFound {len(source_dupes_groups)} duplicate group(s) in source:")
-        for group in source_dupes_groups:
-            logger.info(f"  {len(group.paths)} copies: {group.paths[0].name}")
-
-    # Set up geocoder
-    geocoding_mode = GeocodingMode(args.geocoding)
-    geocoder = Geocoder(geocoding_mode)
-
-    # Set up hash DBs for targets
-    if not args.dry_run:
-        args.images_target.mkdir(parents=True, exist_ok=True)
-        args.video_target.mkdir(parents=True, exist_ok=True)
-    img_db = HashDB(args.images_target)
-    vid_db = HashDB(args.video_target)
-
-    # Phase 1: Deduplicate source files — keep oldest per hash, track dupes
-    seen_hashes: dict[str, pathlib.Path] = {}  # hash -> oldest file
-    unique_files: list[pathlib.Path] = []
-    source_dupes: list[tuple[pathlib.Path, str]] = []  # (path, hash)
-    for f in media_files:
-        h = hash_file(f)
-        if h not in seen_hashes:
-            seen_hashes[h] = f
-            unique_files.append(f)
-        else:
-            existing = seen_hashes[h]
-            if f.stat().st_mtime < existing.stat().st_mtime:
-                # f is older — replace the existing entry
-                seen_hashes[h] = f
-                unique_files[unique_files.index(existing)] = f
-                source_dupes.append((existing, h))
-            else:
-                source_dupes.append((f, h))
-
-    # Phase 2: Check against target
     skipped = 0
+
+    # Hash, dedup against target, and collect files to import
     # (path, hash, is_video, old_hash, old_file_path) — old_* set for updates
     to_import: list[tuple[pathlib.Path, str, bool, str | None, str | None]] = []
 
-    for f in unique_files:
+    for f in batch:
         h = hash_file(f)
         is_video = classify(f) is FileType.VIDEO
         db = vid_db if is_video else img_db
@@ -257,7 +109,6 @@ def _import_photo_video(args: argparse.Namespace, result) -> None:
                 skipped += 1
                 continue
 
-            # Source is newer — decide based on flags
             if args.interactive:
                 answer = input(f"  {f.name} has changed since last import. Update? [y/N]: ").strip().lower()
                 if answer != "y":
@@ -267,34 +118,16 @@ def _import_photo_video(args: argparse.Namespace, result) -> None:
                 skipped += 1
                 continue
 
-            # Mark as update
             to_import.append((f, h, is_video, imp["hash"], imp["file_path"]))
             continue
 
-        # New file
         to_import.append((f, h, is_video, None, None))
 
-    if skipped:
-        logger.info(f"\nSkipping {skipped} file(s) already present in target.")
-
     if not to_import:
-        logger.info("Nothing to import.")
-        # Phase 4: Record source dupes even if nothing new to import
-        if not args.dry_run:
-            for dup_path, dup_hash in source_dupes:
-                is_video = classify(dup_path) is FileType.VIDEO
-                db = vid_db if is_video else img_db
-                db.record_import(str(dup_path), dup_hash)
-        img_db.close()
-        vid_db.close()
-        return
-
-    # Phase 3: Determine targets and execute
-    logger.info(f"\n{'[DRY RUN] ' if args.dry_run else ''}Importing {len(to_import)} photo/video file(s) ...\n")
+        return imported, skipped
 
     if args.dry_run:
-        # Dry run: compute all targets and display grouped by directory
-        grouped: dict[str, list[str]] = {}  # dirname -> [filenames]
+        grouped: dict[str, list[str]] = {}
         updates: list[str] = []
         for src_path, file_hash, is_video, old_hash, old_file_path in to_import:
             meta = metadata_map.get(src_path, Metadata(source_path=src_path))
@@ -308,7 +141,6 @@ def _import_photo_video(args: argparse.Namespace, result) -> None:
             place_name = None
             if meta.has_gps and meta.gps_lat is not None and meta.gps_lon is not None:
                 place_name = geocoder.reverse(meta.gps_lat, meta.gps_lon)
-
             dirname = suggest_dirname(meta, place_name=place_name, source_root=args.source)
             grouped.setdefault(dirname, []).append(src_path.name)
 
@@ -318,80 +150,208 @@ def _import_photo_video(args: argparse.Namespace, result) -> None:
             logger.info(f"  {dirname}/ ({n} {label})")
             for name in filenames:
                 logger.info(f"    {name}")
-
         for line in updates:
             logger.info(line)
 
-        logger.info(f"\n[DRY RUN] Would import {len(to_import)} photo/video file(s).")
+        imported = len(to_import)
     else:
-        # Normal import
-        imported, updated = _execute_photo_video_import(
-            to_import, metadata_map, args, geocoder, img_db, vid_db,
-        )
+        # Separate updates from new files
+        update_entries = []
+        new_entries = []
+        for entry in to_import:
+            if entry[4] is not None:
+                update_entries.append(entry)
+            else:
+                new_entries.append(entry)
 
-        # Record source dupes
-        for dup_path, dup_hash in source_dupes:
-            is_video = classify(dup_path) is FileType.VIDEO
+        # Process updates
+        for src_path, file_hash, is_video, old_hash, old_file_path in update_entries:
+            meta = metadata_map.get(src_path, Metadata(source_path=src_path))
             db = vid_db if is_video else img_db
-            db.record_import(str(dup_path), dup_hash)
+            target_base = args.video_target if is_video else args.images_target
 
-        msg = f"\nImported {imported} photo/video file(s)."
-        if updated:
-            msg += f" Updated {updated} file(s)."
-        logger.info(msg)
+            old_target = target_base / old_file_path
+            if old_target.exists():
+                if args.move:
+                    shutil.move(str(src_path), str(old_target))
+                else:
+                    shutil.copy2(str(src_path), str(old_target))
+
+                if old_hash is not None:
+                    db.delete_by_hash_and_path(old_hash, old_file_path)
+                date_str = meta.date_taken.strftime("%Y:%m:%d %H:%M:%S") if meta.date_taken else None
+                db.insert(
+                    hash=file_hash,
+                    file_size=old_target.stat().st_size,
+                    file_path=old_file_path,
+                    date_taken=date_str,
+                    source_path=str(src_path),
+                )
+                db.update_import(str(src_path), file_hash, old_file_path)
+                imported += 1
+
+        # Resolve dirnames and geocoding for new files
+        resolved_new: list[tuple[pathlib.Path, str, bool, str, str | None]] = []
+        for src_path, file_hash, is_video, _, _ in new_entries:
+            meta = metadata_map.get(src_path, Metadata(source_path=src_path))
+            place_name = None
+            if meta.has_gps and meta.gps_lat is not None and meta.gps_lon is not None:
+                place_name = geocoder.reverse(meta.gps_lat, meta.gps_lon)
+            dirname = suggest_dirname(meta, place_name=place_name, source_root=args.source)
+            resolved_new.append((src_path, file_hash, is_video, dirname, place_name))
+
+        # Interactive mode: group by dirname and prompt once per group
+        if args.interactive and resolved_new:
+            groups: dict[str, list[tuple[pathlib.Path, str, bool, str | None]]] = {}
+            for src_path, file_hash, is_video, dirname, place_name in resolved_new:
+                groups.setdefault(dirname, []).append((src_path, file_hash, is_video, place_name))
+
+            for dirname, group_files in groups.items():
+                n = len(group_files)
+                label = "file" if n == 1 else "files"
+                names = [f.name for f, _, _, _ in group_files]
+                if n <= 5:
+                    file_list = ", ".join(names)
+                else:
+                    file_list = ", ".join(names[:5]) + f", ... +{n - 5} more"
+                user_input = input(
+                    f"  {dirname}/ ({n} {label}: {file_list})\n"
+                    f"  [Enter=accept, type new name, or 's' to skip]: "
+                ).strip()
+
+                if user_input == "s":
+                    continue
+
+                effective_dirname = user_input if user_input else dirname
+                for src_path, file_hash, is_video, place_name in group_files:
+                    target_base = args.video_target if is_video else args.images_target
+                    target_path = target_base / effective_dirname / src_path.name
+                    target_path = resolve_collision(target_path)
+
+                    target_path.parent.mkdir(parents=True, exist_ok=True)
+                    if args.move:
+                        shutil.move(str(src_path), str(target_path))
+                    else:
+                        shutil.copy2(str(src_path), str(target_path))
+
+                    db = vid_db if is_video else img_db
+                    meta = metadata_map.get(src_path, Metadata(source_path=src_path))
+                    rel_path = target_path.relative_to(target_base)
+                    date_str = meta.date_taken.strftime("%Y:%m:%d %H:%M:%S") if meta.date_taken else None
+                    db.insert(
+                        hash=file_hash,
+                        file_size=src_path.stat().st_size if not args.move else target_path.stat().st_size,
+                        file_path=str(rel_path),
+                        date_taken=date_str,
+                        source_path=str(src_path),
+                    )
+                    db.record_import(str(src_path), file_hash, str(rel_path))
+                    imported += 1
+        else:
+            for src_path, file_hash, is_video, dirname, place_name in resolved_new:
+                meta = metadata_map.get(src_path, Metadata(source_path=src_path))
+                target_path = determine_target_path(
+                    meta=meta,
+                    images_target=args.images_target,
+                    video_target=args.video_target,
+                    is_video=is_video,
+                    place_name=place_name,
+                    source_root=args.source,
+                )
+                target_path = resolve_collision(target_path)
+
+                target_path.parent.mkdir(parents=True, exist_ok=True)
+                if args.move:
+                    shutil.move(str(src_path), str(target_path))
+                else:
+                    shutil.copy2(str(src_path), str(target_path))
+
+                db = vid_db if is_video else img_db
+                target_base = args.video_target if is_video else args.images_target
+                rel_path = target_path.relative_to(target_base)
+                date_str = meta.date_taken.strftime("%Y:%m:%d %H:%M:%S") if meta.date_taken else None
+                db.insert(
+                    hash=file_hash,
+                    file_size=src_path.stat().st_size if not args.move else target_path.stat().st_size,
+                    file_path=str(rel_path),
+                    date_taken=date_str,
+                    source_path=str(src_path),
+                )
+                db.record_import(str(src_path), file_hash, str(rel_path))
+                imported += 1
+
+    return imported, skipped
+
+
+def _import_photo_video(args: argparse.Namespace, result) -> None:
+    """Import photo/video files from source into the organized collection."""
+    media_files = result.photos + result.videos
+    if not media_files:
+        return
+
+    logger.info(f"Found {len(media_files)} photo/video files ({len(result.photos)} photos, {len(result.videos)} videos)")
+
+    geocoding_mode = GeocodingMode(args.geocoding)
+    geocoder = Geocoder(geocoding_mode)
+
+    if not args.dry_run:
+        args.images_target.mkdir(parents=True, exist_ok=True)
+        args.video_target.mkdir(parents=True, exist_ok=True)
+    img_db = HashDB(args.images_target)
+    vid_db = HashDB(args.video_target)
+
+    dir_groups = _group_by_source_dir(media_files, args.source)
+    total_imported = 0
+    total_skipped = 0
+
+    if args.dry_run:
+        logger.info("\n[DRY RUN] Importing photo/video file(s) ...\n")
+
+    for rel_dir, batch in _iter_batches(dir_groups, batch_size=100):
+        try:
+            imported, skipped = _import_photo_video_batch(
+                batch, args, geocoder, img_db, vid_db,
+            )
+            total_imported += imported
+            total_skipped += skipped
+        except Exception:
+            logger.exception(f"Error importing {rel_dir}, skipping")
 
     img_db.close()
     vid_db.close()
 
-
-def _import_audio(args: argparse.Namespace, result) -> None:
-    """Import audio files from source into the organized collection."""
-    audio_files = result.audios
-    if not audio_files:
-        return
-
-    logger.info(f"\nFound {len(audio_files)} audio file(s)")
-
-    # Extract audio metadata
-    logger.info("Extracting audio tags ...")
-    audio_meta_map = extract_audio_batch(audio_files)
-
-    # Optionally identify via AcoustID
-    acoustid_key = (args.acoustid_key or os.environ.get("ACOUSTID_API_KEY")) if args.identify else None
-    if args.identify and acoustid_key:
-        logger.info("Identifying audio via AcoustID ...")
-        for path, meta in audio_meta_map.items():
-            audio_meta_map[path] = identify_audio(path, meta, api_key=acoustid_key)
-
-    # Set up hash DB for audio target
-    if not args.dry_run:
-        args.audio_target.mkdir(parents=True, exist_ok=True)
-    aud_db = HashDB(args.audio_target)
-
-    # Phase 1: Deduplicate source files — keep oldest per hash, track dupes
-    seen_hashes: dict[str, pathlib.Path] = {}  # hash -> oldest file
-    unique_files: list[pathlib.Path] = []
-    source_dupes: list[tuple[pathlib.Path, str]] = []
-    for f in audio_files:
-        h = hash_file(f)
-        if h not in seen_hashes:
-            seen_hashes[h] = f
-            unique_files.append(f)
+    if total_skipped:
+        logger.info(f"\nSkipping {total_skipped} photo/video file(s) already present in target.")
+    if args.dry_run:
+        if total_imported:
+            logger.info(f"\n[DRY RUN] Would import {total_imported} photo/video file(s).")
         else:
-            existing = seen_hashes[h]
-            if f.stat().st_mtime < existing.stat().st_mtime:
-                seen_hashes[h] = f
-                unique_files[unique_files.index(existing)] = f
-                source_dupes.append((existing, h))
-            else:
-                source_dupes.append((f, h))
+            logger.info("Nothing to import.")
+    else:
+        if total_imported:
+            logger.info(f"\nImported {total_imported} photo/video file(s).")
+        elif not total_skipped:
+            logger.info("Nothing to import.")
 
-    # Phase 2: Check against target
+
+def _import_audio_batch(
+    batch: list[pathlib.Path],
+    args: argparse.Namespace,
+    audio_meta_map: dict[pathlib.Path, AudioMetadata],
+    aud_db: HashDB,
+) -> tuple[int, int]:
+    """Process one batch of audio files: hash → dedup → import.
+
+    Returns (imported, skipped).
+    """
+    imported = 0
     skipped = 0
+
+    # Hash, dedup against target, collect files to import
     # (path, hash, old_hash, old_file_path)
     to_import: list[tuple[pathlib.Path, str, str | None, str | None]] = []
 
-    for f in unique_files:
+    for f in batch:
         h = hash_file(f)
 
         if aud_db.hash_exists(h):
@@ -422,23 +382,11 @@ def _import_audio(args: argparse.Namespace, result) -> None:
 
         to_import.append((f, h, None, None))
 
-    if skipped:
-        logger.info(f"\nSkipping {skipped} audio file(s) already present in target.")
-
     if not to_import:
-        logger.info("No audio files to import.")
-        if not args.dry_run:
-            for dup_path, dup_hash in source_dupes:
-                aud_db.record_import(str(dup_path), dup_hash)
-        aud_db.close()
-        return
-
-    # Phase 3: Import + record
-    logger.info(f"\n{'[DRY RUN] ' if args.dry_run else ''}Importing {len(to_import)} audio file(s) ...\n")
+        return imported, skipped
 
     if args.dry_run:
-        # Dry run: compute all targets and display grouped
-        grouped: dict[str, list[str]] = {}  # dirname -> [filenames]
+        grouped: dict[str, list[str]] = {}
         updates: list[str] = []
         for src_path, file_hash, old_hash, old_file_path in to_import:
             meta = audio_meta_map.get(src_path, AudioMetadata(source_path=src_path))
@@ -458,15 +406,12 @@ def _import_audio(args: argparse.Namespace, result) -> None:
             logger.info(f"  {dirname}/ ({n} {label})")
             for name in filenames:
                 logger.info(f"    {name}")
-
         for line in updates:
             logger.info(line)
 
-        logger.info(f"\n[DRY RUN] Would import {len(to_import)} audio file(s).")
+        imported = len(to_import)
     else:
-        imported = 0
-        updated = 0
-        for src_path, file_hash, old_hash, old_file_path in tqdm(to_import, desc="Importing audio"):
+        for src_path, file_hash, old_hash, old_file_path in to_import:
             meta = audio_meta_map.get(src_path, AudioMetadata(source_path=src_path))
 
             # Update: overwrite old target if it exists
@@ -487,7 +432,7 @@ def _import_audio(args: argparse.Namespace, result) -> None:
                         source_path=str(src_path),
                     )
                     aud_db.update_import(str(src_path), file_hash, old_file_path)
-                    updated += 1
+                    imported += 1
                     continue
 
             target_path = determine_audio_target_path(meta, args.audio_target)
@@ -509,16 +454,63 @@ def _import_audio(args: argparse.Namespace, result) -> None:
             aud_db.record_import(str(src_path), file_hash, str(rel_path))
             imported += 1
 
-        # Record source dupes
-        for dup_path, dup_hash in source_dupes:
-            aud_db.record_import(str(dup_path), dup_hash)
+    return imported, skipped
 
-        msg = f"\nImported {imported} audio file(s)."
-        if updated:
-            msg += f" Updated {updated} file(s)."
-        logger.info(msg)
+
+def _import_audio(args: argparse.Namespace, result) -> None:
+    """Import audio files from source into the organized collection."""
+    audio_files = result.audios
+    if not audio_files:
+        return
+
+    logger.info(f"\nFound {len(audio_files)} audio file(s)")
+
+    # Extract audio metadata for all files (cheap, no I/O beyond tag reading)
+    logger.info("Extracting audio tags ...")
+    audio_meta_map = extract_audio_batch(audio_files)
+
+    # Optionally identify via AcoustID
+    acoustid_key = (args.acoustid_key or os.environ.get("ACOUSTID_API_KEY")) if args.identify else None
+    if args.identify and acoustid_key:
+        logger.info("Identifying audio via AcoustID ...")
+        for path, meta in audio_meta_map.items():
+            audio_meta_map[path] = identify_audio(path, meta, api_key=acoustid_key)
+
+    if not args.dry_run:
+        args.audio_target.mkdir(parents=True, exist_ok=True)
+    aud_db = HashDB(args.audio_target)
+
+    dir_groups = _group_by_source_dir(audio_files, args.source)
+    total_imported = 0
+    total_skipped = 0
+
+    if args.dry_run:
+        logger.info("\n[DRY RUN] Importing audio file(s) ...\n")
+
+    for rel_dir, batch in _iter_batches(dir_groups, batch_size=10):
+        try:
+            imported, skipped = _import_audio_batch(
+                batch, args, audio_meta_map, aud_db,
+            )
+            total_imported += imported
+            total_skipped += skipped
+        except Exception:
+            logger.exception(f"Error importing audio {rel_dir}, skipping")
 
     aud_db.close()
+
+    if total_skipped:
+        logger.info(f"\nSkipping {total_skipped} audio file(s) already present in target.")
+    if args.dry_run:
+        if total_imported:
+            logger.info(f"\n[DRY RUN] Would import {total_imported} audio file(s).")
+        else:
+            logger.info("No audio files to import.")
+    else:
+        if total_imported:
+            logger.info(f"\nImported {total_imported} audio file(s).")
+        elif not total_skipped:
+            logger.info("No audio files to import.")
 
 
 def run_import(args: argparse.Namespace) -> None:

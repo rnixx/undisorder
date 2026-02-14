@@ -4,7 +4,8 @@ Photo/Video/Audio organization tool — deduplicates, sorts by date/topic/artist
 
 ## Features
 
-- **Smart deduplication**: 2-phase detection (file size grouping + SHA256) — fast even for large collections
+- **Smart deduplication**: `dupes --delete` removes cross-directory duplicates before import (file size grouping + SHA256); import skips files already in target via hash index
+- **Per-directory batch processing**: Processes one source directory at a time (deepest first) — low memory, resilient to errors, natural progress feedback
 - **Intelligent directory naming**: Uses EXIF dates, source folder names, keywords, GPS data to create meaningful folder structures like `2024/2024-03_Wien/`
 - **Photo + Video support**: Handles all common formats (JPEG, PNG, HEIC, RAW, MP4, MOV, MKV, ...)
 - **Audio support**: Organizes by Artist/Album using embedded tags (ID3, Vorbis, MP4 atoms) via mutagen
@@ -51,10 +52,13 @@ pip install -e .
 ### TL;DR — typical workflow
 
 ```bash
-# 1. Pick source folders interactively, preview what would happen
+# 1. Remove cross-directory duplicates in source (keeps oldest by mtime)
+undisorder dupes /mnt/backup --delete
+
+# 2. Pick source folders interactively, preview what would happen
 undisorder import /mnt/backup --select --dry-run
 
-# 2. Happy with the plan? Import for real, with all the bells and whistles
+# 3. Happy with the plan? Import for real, with all the bells and whistles
 undisorder import /mnt/backup \
     --select \
     --geocoding=online \
@@ -63,13 +67,17 @@ undisorder import /mnt/backup \
     --exclude '*.wav' --exclude-dir 'DAW*'
 ```
 
-### Find duplicates in a directory
+### Find and remove duplicates in a directory
 
 ```bash
+# Show duplicate groups (no changes)
 undisorder dupes /path/to/unsorted-media
+
+# Remove duplicates, keeping the oldest by modification time
+undisorder dupes /path/to/unsorted-media --delete
 ```
 
-Shows duplicate groups with file paths and sizes. Scans photos, videos, and audio files.
+Shows duplicate groups with file paths and sizes. Scans photos, videos, and audio files. With `--delete`, removes newer copies and keeps the file with the oldest modification time from each duplicate group. Run this before `import` to clean up cross-directory duplicates in your source.
 
 ### Import files into your collection
 
@@ -238,25 +246,36 @@ Audio files are organized by Artist/Album:
 
 ## How It Works
 
+### Pre-import: remove source duplicates
+
+Run `undisorder dupes --delete <source>` before importing. This finds files with identical content across directories (via file size grouping + SHA256), keeps the copy with the oldest modification time from each duplicate group, and deletes the rest. This ensures no cross-directory duplicates enter the import pipeline.
+
 ### Photos and videos
+
+Import processes files **one source directory at a time** (deepest first), in batches of up to 100 files. Each batch is a self-contained unit — if one directory fails, the rest still succeed.
 
 1. **Scan**: Recursively find all photos and videos, classify by extension
 2. **Filter**: Apply `--exclude` / `--exclude-dir` patterns, then `--select` for interactive review
-3. **Metadata**: Extract EXIF dates, GPS, keywords via `exiftool`
-4. **Deduplicate source**: Group by file size, then SHA256 hash — when duplicates are found, the copy with the oldest modification time is kept
-5. **Check target**: Compare hashes against central SQLite index
-6. **Organize**: Determine target path using metadata + intelligent naming
-7. **Execute**: Copy/move files, update hash index
+3. **Per-directory batch**:
+   - **Metadata**: Extract EXIF dates, GPS, keywords via `exiftool`
+   - **Hash**: SHA256 hash each file
+   - **Check target**: Compare hashes against central SQLite index — skip already-imported files
+   - **Organize**: Determine target path using metadata + intelligent naming
+   - **Execute**: Copy/move files, update hash index
 
 ### Audio files
+
+Same per-directory processing, in batches of up to 10 files (smaller batches due to potential AcoustID web requests).
 
 1. **Scan**: Identify audio files by extension (MP3, FLAC, OGG, M4A, WAV, ...)
 2. **Filter**: Same exclude/select filtering as photos/videos
 3. **Tags**: Read embedded tags (artist, album, title, track number) via mutagen
 4. **Identify** (optional): For files with missing tags, fingerprint via AcoustID and look up metadata on MusicBrainz
-5. **Deduplicate**: SHA256-based deduplication, same as photos/videos — oldest copy wins
-6. **Organize**: Place in `Artist/Album/NN_Title.ext` structure
-7. **Execute**: Copy/move files, update hash index
+5. **Per-directory batch**:
+   - **Hash**: SHA256 hash each file
+   - **Check target**: Skip already-imported files
+   - **Organize**: Place in `Artist/Album/NN_Title.ext` structure
+   - **Execute**: Copy/move files, update hash index
 
 ## Hash Database and Metadata Editing
 

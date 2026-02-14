@@ -1,6 +1,8 @@
 """Tests for undisorder.importer — import photo/video/audio files."""
 
 from undisorder.audio_metadata import AudioMetadata
+from undisorder.importer import _group_by_source_dir
+from undisorder.importer import _iter_batches
 from undisorder.importer import run_import
 from unittest.mock import MagicMock
 from unittest.mock import patch
@@ -9,6 +11,114 @@ import logging
 import os
 import pathlib
 import time
+
+
+class TestGroupBySourceDir:
+    """Test _group_by_source_dir helper."""
+
+    def test_groups_by_parent_directory(self, tmp_path: pathlib.Path):
+        """Files from 2 dirs grouped correctly."""
+        source = tmp_path / "source"
+        dir_a = source / "vacation"
+        dir_b = source / "work"
+        dir_a.mkdir(parents=True)
+        dir_b.mkdir(parents=True)
+        f1 = dir_a / "photo1.jpg"
+        f2 = dir_a / "photo2.jpg"
+        f3 = dir_b / "photo3.jpg"
+        f1.touch()
+        f2.touch()
+        f3.touch()
+
+        groups = _group_by_source_dir([f1, f2, f3], source)
+        group_dict = dict(groups)
+
+        assert pathlib.PurePosixPath("vacation") in group_dict
+        assert pathlib.PurePosixPath("work") in group_dict
+        assert set(group_dict[pathlib.PurePosixPath("vacation")]) == {f1, f2}
+        assert group_dict[pathlib.PurePosixPath("work")] == [f3]
+
+    def test_deepest_first(self, tmp_path: pathlib.Path):
+        """Deepest directories come first: a/b/c/ before a/b/ before a/."""
+        source = tmp_path / "source"
+        d1 = source / "a"
+        d2 = source / "a" / "b"
+        d3 = source / "a" / "b" / "c"
+        d1.mkdir(parents=True)
+        d2.mkdir(parents=True)
+        d3.mkdir(parents=True)
+        f1 = d1 / "f1.jpg"
+        f2 = d2 / "f2.jpg"
+        f3 = d3 / "f3.jpg"
+        f1.touch()
+        f2.touch()
+        f3.touch()
+
+        groups = _group_by_source_dir([f1, f2, f3], source)
+        dir_order = [d for d, _ in groups]
+
+        assert dir_order == [
+            pathlib.PurePosixPath("a/b/c"),
+            pathlib.PurePosixPath("a/b"),
+            pathlib.PurePosixPath("a"),
+        ]
+
+    def test_root_files(self, tmp_path: pathlib.Path):
+        """Files in source root get PurePosixPath('.')."""
+        source = tmp_path / "source"
+        source.mkdir(parents=True)
+        f = source / "photo.jpg"
+        f.touch()
+
+        groups = _group_by_source_dir([f], source)
+        assert len(groups) == 1
+        assert groups[0][0] == pathlib.PurePosixPath(".")
+        assert groups[0][1] == [f]
+
+
+class TestIterBatches:
+    """Test _iter_batches helper."""
+
+    def test_small_dir_passes_through(self):
+        """Dir with 3 files, batch_size=100 → 1 batch."""
+        files = [pathlib.Path(f"/src/dir/f{i}.jpg") for i in range(3)]
+        groups = [(pathlib.PurePosixPath("dir"), files)]
+
+        batches = list(_iter_batches(groups, batch_size=100))
+        assert len(batches) == 1
+        assert batches[0][0] == pathlib.PurePosixPath("dir")
+        assert batches[0][1] == files
+
+    def test_large_dir_sliced(self):
+        """Dir with 250 files, batch_size=100 → 3 batches (100, 100, 50)."""
+        files = [pathlib.Path(f"/src/dir/f{i}.jpg") for i in range(250)]
+        groups = [(pathlib.PurePosixPath("dir"), files)]
+
+        batches = list(_iter_batches(groups, batch_size=100))
+        assert len(batches) == 3
+        assert len(batches[0][1]) == 100
+        assert len(batches[1][1]) == 100
+        assert len(batches[2][1]) == 50
+        # All share the same rel_dir
+        assert all(d == pathlib.PurePosixPath("dir") for d, _ in batches)
+
+    def test_preserves_dir_order(self):
+        """Deepest-first order maintained after slicing."""
+        files_deep = [pathlib.Path(f"/src/a/b/c/f{i}.jpg") for i in range(150)]
+        files_shallow = [pathlib.Path(f"/src/a/f{i}.jpg") for i in range(50)]
+        groups = [
+            (pathlib.PurePosixPath("a/b/c"), files_deep),
+            (pathlib.PurePosixPath("a"), files_shallow),
+        ]
+
+        batches = list(_iter_batches(groups, batch_size=100))
+        dirs = [d for d, _ in batches]
+        # Deep dir's 2 batches come before shallow dir's 1 batch
+        assert dirs == [
+            pathlib.PurePosixPath("a/b/c"),
+            pathlib.PurePosixPath("a/b/c"),
+            pathlib.PurePosixPath("a"),
+        ]
 
 
 class TestImportPhotoVideo:
@@ -188,59 +298,183 @@ class TestImportPhotoVideo:
         assert "skip" in caplog.text.lower() or "already" in caplog.text.lower()
 
 
-    def test_source_dupes_keeps_oldest_mtime(self, tmp_path: pathlib.Path):
-        """When source contains duplicates, the file with the oldest mtime is imported."""
+class TestBatchImport:
+    """Test per-directory batch import processing."""
+
+    def _make_args(self, tmp_path, **overrides):
         source = tmp_path / "source"
-        source.mkdir()
-        target_img = tmp_path / "photos"
-        target_vid = tmp_path / "videos"
-        target_img.mkdir()
-        target_vid.mkdir()
-
-        content = b"\xff\xd8\xff\xd9duplicate across systems"
-        newer = source / "newer.jpg"
-        older = source / "older.jpg"
-
-        newer.write_bytes(content)
-        older.write_bytes(content)
-
-        # Set older.jpg to an earlier mtime
-        old_time = time.time() - 86400 * 365  # 1 year ago
-        os.utime(older, (old_time, old_time))
-
+        source.mkdir(exist_ok=True)
         args = MagicMock()
         args.source = source
-        args.images_target = target_img
-        args.video_target = target_vid
+        args.images_target = tmp_path / "photos"
+        args.video_target = tmp_path / "videos"
+        args.audio_target = tmp_path / "musik"
         args.dry_run = False
         args.move = False
         args.geocoding = "off"
         args.interactive = False
+        args.identify = False
+        args.acoustid_key = None
         args.exclude = []
         args.exclude_dir = []
         args.select = False
         args.update = False
+        for k, v in overrides.items():
+            setattr(args, k, v)
+        (tmp_path / "photos").mkdir(exist_ok=True)
+        (tmp_path / "videos").mkdir(exist_ok=True)
+        (tmp_path / "musik").mkdir(exist_ok=True)
+        return args
+
+    def test_batch_import_processes_per_directory(self, tmp_path: pathlib.Path):
+        """Files from 2 dirs are each imported independently."""
+        source = tmp_path / "source"
+        dir_a = source / "vacation"
+        dir_b = source / "work"
+        dir_a.mkdir(parents=True)
+        dir_b.mkdir(parents=True)
+        (dir_a / "photo1.jpg").write_bytes(b"\xff\xd8\xff\xd9vacation1")
+        (dir_b / "photo2.jpg").write_bytes(b"\xff\xd8\xff\xd9workphoto")
+
+        args = self._make_args(tmp_path)
 
         with patch("undisorder.importer.extract_batch") as mock_extract:
             from undisorder.metadata import Metadata
 
             import datetime
             mock_extract.return_value = {
-                newer: Metadata(source_path=newer, date_taken=datetime.datetime(2024, 3, 15)),
-                older: Metadata(source_path=older, date_taken=datetime.datetime(2024, 3, 15)),
+                dir_a / "photo1.jpg": Metadata(
+                    source_path=dir_a / "photo1.jpg",
+                    date_taken=datetime.datetime(2024, 3, 15),
+                ),
+                dir_b / "photo2.jpg": Metadata(
+                    source_path=dir_b / "photo2.jpg",
+                    date_taken=datetime.datetime(2024, 6, 20),
+                ),
             }
             run_import(args)
 
-        # Find the imported file in target
-        imported_files = [
-            pathlib.Path(dirpath) / f
-            for dirpath, _, files in os.walk(target_img)
+        # Both files should be imported
+        found_files = [
+            f for dirpath, _, files in os.walk(tmp_path / "photos")
             for f in files if not f.endswith(".db")
         ]
-        assert len(imported_files) == 1
-        # The imported file should have the older mtime (copy2 preserves it)
-        imported_mtime = imported_files[0].stat().st_mtime
-        assert abs(imported_mtime - old_time) < 2
+        assert len(found_files) == 2
+
+    def test_error_in_one_dir_continues_others(self, tmp_path: pathlib.Path, caplog):
+        """If one directory batch fails, the other directory still gets imported."""
+        source = tmp_path / "source"
+        dir_a = source / "aaa"
+        dir_b = source / "bbb"
+        dir_a.mkdir(parents=True)
+        dir_b.mkdir(parents=True)
+        (dir_a / "bad.jpg").write_bytes(b"\xff\xd8\xff\xd9bad")
+        (dir_b / "good.jpg").write_bytes(b"\xff\xd8\xff\xd9good")
+
+        args = self._make_args(tmp_path)
+
+        with patch("undisorder.importer.extract_batch") as mock_extract:
+            from undisorder.metadata import Metadata
+
+            import datetime
+            mock_extract.return_value = {
+                dir_a / "bad.jpg": Metadata(
+                    source_path=dir_a / "bad.jpg",
+                    date_taken=datetime.datetime(2024, 3, 15),
+                ),
+                dir_b / "good.jpg": Metadata(
+                    source_path=dir_b / "good.jpg",
+                    date_taken=datetime.datetime(2024, 6, 20),
+                ),
+            }
+            # Make hash_file fail for files in dir_a
+            original_hash = __import__("undisorder.hasher", fromlist=["hash_file"]).hash_file
+            def failing_hash(path):
+                if "aaa" in str(path):
+                    raise OSError("disk error")
+                return original_hash(path)
+            with patch("undisorder.importer.hash_file", side_effect=failing_hash):
+                with caplog.at_level(logging.INFO, logger="undisorder"):
+                    run_import(args)
+
+        # Error should be logged
+        assert "error" in caplog.text.lower()
+        # good.jpg from dir_b should still be imported
+        found_files = [
+            f for dirpath, _, files in os.walk(tmp_path / "photos")
+            for f in files if not f.endswith(".db")
+        ]
+        assert len(found_files) == 1
+        assert "good.jpg" in found_files[0]
+
+    def test_cross_dir_dedup_via_hashdb(self, tmp_path: pathlib.Path):
+        """Same hash in 2 dirs — only first is imported (second caught by hashdb)."""
+        source = tmp_path / "source"
+        dir_a = source / "aaa"
+        dir_b = source / "bbb"
+        dir_a.mkdir(parents=True)
+        dir_b.mkdir(parents=True)
+        content = b"\xff\xd8\xff\xd9same content"
+        (dir_a / "photo.jpg").write_bytes(content)
+        (dir_b / "photo.jpg").write_bytes(content)
+
+        args = self._make_args(tmp_path)
+
+        with patch("undisorder.importer.extract_batch") as mock_extract:
+            from undisorder.metadata import Metadata
+
+            import datetime
+            mock_extract.return_value = {
+                dir_a / "photo.jpg": Metadata(
+                    source_path=dir_a / "photo.jpg",
+                    date_taken=datetime.datetime(2024, 3, 15),
+                ),
+                dir_b / "photo.jpg": Metadata(
+                    source_path=dir_b / "photo.jpg",
+                    date_taken=datetime.datetime(2024, 3, 15),
+                ),
+            }
+            run_import(args)
+
+        # Only one file should be imported (second is a hash duplicate)
+        found_files = [
+            f for dirpath, _, files in os.walk(tmp_path / "photos")
+            for f in files if not f.endswith(".db")
+        ]
+        assert len(found_files) == 1
+
+    def test_dry_run_batch_shows_per_dir_output(self, tmp_path: pathlib.Path, caplog):
+        """Dry run logs grouped by source dir."""
+        source = tmp_path / "source"
+        dir_a = source / "vacation"
+        dir_b = source / "work"
+        dir_a.mkdir(parents=True)
+        dir_b.mkdir(parents=True)
+        (dir_a / "photo1.jpg").write_bytes(b"\xff\xd8\xff\xd9vacation1")
+        (dir_b / "photo2.jpg").write_bytes(b"\xff\xd8\xff\xd9workphoto")
+
+        args = self._make_args(tmp_path, dry_run=True)
+
+        with patch("undisorder.importer.extract_batch") as mock_extract:
+            from undisorder.metadata import Metadata
+
+            import datetime
+            mock_extract.return_value = {
+                dir_a / "photo1.jpg": Metadata(
+                    source_path=dir_a / "photo1.jpg",
+                    date_taken=datetime.datetime(2024, 3, 15),
+                ),
+                dir_b / "photo2.jpg": Metadata(
+                    source_path=dir_b / "photo2.jpg",
+                    date_taken=datetime.datetime(2024, 6, 20),
+                ),
+            }
+            with caplog.at_level(logging.INFO, logger="undisorder"):
+                run_import(args)
+
+        assert "DRY RUN" in caplog.text
+        assert "photo1.jpg" in caplog.text
+        assert "photo2.jpg" in caplog.text
 
 
 class TestImportAudio:
@@ -379,46 +613,6 @@ class TestImportAudio:
                 run_import(args)
 
         assert "skip" in caplog.text.lower() or "already" in caplog.text.lower()
-
-    def test_audio_source_dupes_keeps_oldest_mtime(self, tmp_path: pathlib.Path):
-        """When audio source contains duplicates, the file with the oldest mtime is imported."""
-        source = tmp_path / "source"
-        source.mkdir(exist_ok=True)
-
-        content = b"\xff\xfb\x90\x00duplicate audio across systems"
-        newer = source / "newer.mp3"
-        older = source / "older.mp3"
-
-        newer.write_bytes(content)
-        older.write_bytes(content)
-
-        old_time = time.time() - 86400 * 365
-        os.utime(older, (old_time, old_time))
-
-        args = self._make_args(tmp_path)
-
-        audio_meta_newer = AudioMetadata(
-            source_path=newer, artist="Artist", album="Album",
-            title="Song", track_number=1,
-        )
-        audio_meta_older = AudioMetadata(
-            source_path=older, artist="Artist", album="Album",
-            title="Song", track_number=1,
-        )
-        with patch("undisorder.importer.extract_audio_batch", return_value={
-            newer: audio_meta_newer,
-            older: audio_meta_older,
-        }):
-            run_import(args)
-
-        imported_files = [
-            pathlib.Path(dirpath) / f
-            for dirpath, _, files in os.walk(tmp_path / "musik")
-            for f in files if not f.endswith(".db")
-        ]
-        assert len(imported_files) == 1
-        imported_mtime = imported_files[0].stat().st_mtime
-        assert abs(imported_mtime - old_time) < 2
 
     def test_dupes_includes_audio(self, tmp_path: pathlib.Path, caplog):
         """The dupes command should find duplicates across audio files."""
@@ -942,39 +1136,6 @@ class TestImportSourcePath:
                 run_import(args)
 
         assert "skip" in caplog.text.lower() or "Nothing to import" in caplog.text
-
-    def test_source_dupes_recorded_in_imports(self, tmp_path):
-        """Two files with same content — both source_paths should be in imports."""
-        source = tmp_path / "source"
-        source.mkdir(exist_ok=True)
-        content = b"\xff\xd8\xff\xd9same content"
-        (source / "a.jpg").write_bytes(content)
-        (source / "b.jpg").write_bytes(content)
-
-        args = self._make_args(tmp_path)
-
-        with patch("undisorder.importer.extract_batch") as mock_extract:
-            from undisorder.metadata import Metadata
-
-            import datetime
-            mock_extract.return_value = {
-                source / "a.jpg": Metadata(
-                    source_path=source / "a.jpg",
-                    date_taken=datetime.datetime(2024, 3, 15),
-                ),
-                source / "b.jpg": Metadata(
-                    source_path=source / "b.jpg",
-                    date_taken=datetime.datetime(2024, 3, 15),
-                ),
-            }
-            run_import(args)
-
-        # Both source paths should be recorded in imports
-        from undisorder.hashdb import HashDB
-        img_db = HashDB(tmp_path / "photos")
-        assert img_db.source_path_imported(str(source / "a.jpg"))
-        assert img_db.source_path_imported(str(source / "b.jpg"))
-        img_db.close()
 
     def test_import_updates_when_source_newer(self, tmp_path, caplog):
         """With --update, source newer than target triggers re-import."""
