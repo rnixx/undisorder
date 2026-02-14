@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import enum
-from functools import lru_cache
 
 import reverse_geocode
 from geopy.geocoders import Nominatim

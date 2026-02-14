@@ -10,17 +10,18 @@ from undisorder.hashdb import HashDB
 
 
 @pytest.fixture
-def db(tmp_target: pathlib.Path) -> HashDB:
-    """Create a HashDB instance in a temp directory."""
-    return HashDB(tmp_target)
+def db(tmp_path: pathlib.Path, tmp_target: pathlib.Path) -> HashDB:
+    """Create a HashDB instance with a temp DB file."""
+    return HashDB(tmp_target, db_path=tmp_path / "test.db")
 
 
 class TestHashDBInit:
     """Test database initialization."""
 
-    def test_creates_db_file(self, tmp_target: pathlib.Path):
-        HashDB(tmp_target)
-        assert (tmp_target / ".undisorder.db").exists()
+    def test_creates_db_file(self, tmp_path: pathlib.Path, tmp_target: pathlib.Path):
+        db_path = tmp_path / "test.db"
+        HashDB(tmp_target, db_path=db_path)
+        assert db_path.exists()
 
     def test_creates_tables(self, db: HashDB):
         """The files table should exist after init."""
@@ -31,10 +32,28 @@ class TestHashDBInit:
         assert cursor.fetchone() is not None
         conn.close()
 
-    def test_idempotent_init(self, tmp_target: pathlib.Path):
+    def test_idempotent_init(self, tmp_path: pathlib.Path, tmp_target: pathlib.Path):
         """Creating HashDB twice on the same dir should not fail."""
-        HashDB(tmp_target)
-        HashDB(tmp_target)
+        db_path = tmp_path / "test.db"
+        HashDB(tmp_target, db_path=db_path)
+        HashDB(tmp_target, db_path=db_path)
+
+    def test_target_dir_isolation(self, tmp_path: pathlib.Path):
+        """Two HashDB instances with different target_dirs share the DB but see different data."""
+        db_path = tmp_path / "test.db"
+        target_a = tmp_path / "a"
+        target_a.mkdir()
+        target_b = tmp_path / "b"
+        target_b.mkdir()
+
+        db_a = HashDB(target_a, db_path=db_path)
+        db_b = HashDB(target_b, db_path=db_path)
+
+        db_a.insert(hash="h1", file_size=100, file_path="photo.jpg")
+        assert db_a.hash_exists("h1")
+        assert db_b.hash_exists("h1") is False
+        assert db_a.count() == 1
+        assert db_b.count() == 0
 
 
 class TestHashDBInsert:
@@ -117,27 +136,22 @@ class TestHashDBDelete:
 class TestHashDBRebuild:
     """Test rebuilding the hash DB from the filesystem."""
 
-    def test_rebuild_adds_files(self, tmp_target: pathlib.Path):
+    def test_rebuild_adds_files(self, tmp_path: pathlib.Path, tmp_target: pathlib.Path):
         # Create some files in the target
         sub = tmp_target / "2024" / "2024-03"
         sub.mkdir(parents=True)
         (sub / "photo.jpg").write_bytes(b"\xff\xd8\xff\xd9")
-        db = HashDB(tmp_target)
+        db = HashDB(tmp_target, db_path=tmp_path / "test.db")
         count = db.rebuild(tmp_target)
         assert count == 1
         assert db.count() == 1
 
-    def test_rebuild_clears_old_entries(self, tmp_target: pathlib.Path):
-        db = HashDB(tmp_target)
+    def test_rebuild_clears_old_entries(self, tmp_path: pathlib.Path, tmp_target: pathlib.Path):
+        db = HashDB(tmp_target, db_path=tmp_path / "test.db")
         db.insert(hash="old", file_size=1, file_path="gone.jpg")
         count = db.rebuild(tmp_target)
         # gone.jpg doesn't exist, so it should be cleared
         assert db.hash_exists("old") is False
-
-    def test_rebuild_skips_db_file(self, tmp_target: pathlib.Path):
-        db = HashDB(tmp_target)
-        count = db.rebuild(tmp_target)
-        assert count == 0
 
 
 class TestHashDBImports:
@@ -185,8 +199,8 @@ class TestHashDBImports:
         assert len(rows) == 1
         assert rows[0]["file_path"] == "b.jpg"
 
-    def test_rebuild_preserves_imports(self, tmp_target: pathlib.Path):
-        db = HashDB(tmp_target)
+    def test_rebuild_preserves_imports(self, tmp_path: pathlib.Path, tmp_target: pathlib.Path):
+        db = HashDB(tmp_target, db_path=tmp_path / "test.db")
         db.record_import("/media/sd/photo.jpg", "abc123", "2024/photo.jpg")
         db.insert(hash="old", file_size=1, file_path="gone.jpg")
         db.rebuild(tmp_target)
@@ -194,3 +208,18 @@ class TestHashDBImports:
         assert db.hash_exists("old") is False
         # imports table should be preserved
         assert db.source_path_imported("/media/sd/photo.jpg") is True
+
+    def test_imports_isolated_by_target_dir(self, tmp_path: pathlib.Path):
+        """Import records are scoped to target_dir."""
+        db_path = tmp_path / "test.db"
+        target_a = tmp_path / "a"
+        target_a.mkdir()
+        target_b = tmp_path / "b"
+        target_b.mkdir()
+
+        db_a = HashDB(target_a, db_path=db_path)
+        db_b = HashDB(target_b, db_path=db_path)
+
+        db_a.record_import("/media/sd/photo.jpg", "h1", "2024/photo.jpg")
+        assert db_a.source_path_imported("/media/sd/photo.jpg") is True
+        assert db_b.source_path_imported("/media/sd/photo.jpg") is False

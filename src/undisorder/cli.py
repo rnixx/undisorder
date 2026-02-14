@@ -6,13 +6,12 @@ import argparse
 import os
 import pathlib
 import shutil
-import sys
 
 from tqdm import tqdm
 
-from undisorder.audio_metadata import AudioMetadata, extract_audio, extract_audio_batch
+from undisorder.audio_metadata import AudioMetadata, extract_audio_batch
 from undisorder.geocoder import GeocodingMode, Geocoder
-from undisorder.hashdb import HashDB
+from undisorder.hashdb import HashDB, _config_dir
 from undisorder.hasher import find_duplicates, hash_file
 from undisorder.metadata import Metadata, extract_batch
 from undisorder.musicbrainz import identify_audio
@@ -372,6 +371,32 @@ def _import_photo_video(args: argparse.Namespace, result) -> None:
         print(msg)
 
 
+def _resolve_acoustid_key(args: argparse.Namespace) -> str | None:
+    """Resolve the AcoustID API key from CLI flag, env var, saved file, or interactive prompt."""
+    # 1. CLI flag
+    if args.acoustid_key:
+        return args.acoustid_key
+
+    # 2. Environment variable
+    env_key = os.environ.get("ACOUSTID_API_KEY")
+    if env_key:
+        return env_key
+
+    # 3. Saved key file
+    key_file = _config_dir() / "acoustid.key"
+    if key_file.exists():
+        saved = key_file.read_text().strip()
+        if saved:
+            return saved
+
+    # 4. Interactive prompt + persist
+    key = input("Enter your AcoustID API key (https://acoustid.org/new-application), or press Enter to skip: ").strip()
+    if not key:
+        return None
+    key_file.write_text(key + "\n")
+    return key
+
+
 def _import_audio(args: argparse.Namespace, result) -> None:
     """Import audio files from source into the organized collection."""
     audio_files = result.audios
@@ -385,7 +410,7 @@ def _import_audio(args: argparse.Namespace, result) -> None:
     audio_meta_map = extract_audio_batch(audio_files)
 
     # Optionally identify via AcoustID
-    acoustid_key = args.acoustid_key or os.environ.get("ACOUSTID_API_KEY")
+    acoustid_key = _resolve_acoustid_key(args) if args.identify else None
     if args.identify and acoustid_key:
         print("Identifying audio via AcoustID ...")
         for path, meta in audio_meta_map.items():

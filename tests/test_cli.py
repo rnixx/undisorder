@@ -8,7 +8,14 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from undisorder.audio_metadata import AudioMetadata
-from undisorder.cli import build_parser, cmd_check, cmd_dupes, cmd_hashdb, cmd_import
+from undisorder.cli import (
+    _resolve_acoustid_key,
+    build_parser,
+    cmd_check,
+    cmd_dupes,
+    cmd_hashdb,
+    cmd_import,
+)
 
 
 class TestBuildParser:
@@ -183,9 +190,6 @@ class TestCmdHashdb:
 
         captured = capsys.readouterr()
         assert "1 file" in captured.out
-
-        # Verify DB was actually created
-        assert (target / ".undisorder.db").exists()
 
 
 class TestCmdImport:
@@ -835,3 +839,56 @@ class TestCmdImportSourcePath:
 
         captured = capsys.readouterr()
         assert "skip" in captured.out.lower() or "No audio files to import" in captured.out
+
+
+class TestResolveAcoustidKey:
+    """Test AcoustID API key resolution."""
+
+    def test_cli_flag_takes_precedence(self):
+        args = MagicMock()
+        args.acoustid_key = "from-cli"
+        assert _resolve_acoustid_key(args) == "from-cli"
+
+    def test_env_var_fallback(self, monkeypatch):
+        args = MagicMock()
+        args.acoustid_key = None
+        monkeypatch.setenv("ACOUSTID_API_KEY", "from-env")
+        assert _resolve_acoustid_key(args) == "from-env"
+
+    def test_saved_file_fallback(self, tmp_path, monkeypatch):
+        args = MagicMock()
+        args.acoustid_key = None
+        monkeypatch.delenv("ACOUSTID_API_KEY", raising=False)
+        config_dir = tmp_path / "config"
+        config_dir.mkdir()
+        (config_dir / "acoustid.key").write_text("from-file\n")
+        with patch("undisorder.cli._config_dir", return_value=config_dir):
+            assert _resolve_acoustid_key(args) == "from-file"
+
+    def test_interactive_prompt_and_persist(self, tmp_path, monkeypatch):
+        args = MagicMock()
+        args.acoustid_key = None
+        monkeypatch.delenv("ACOUSTID_API_KEY", raising=False)
+        config_dir = tmp_path / "config"
+        config_dir.mkdir()
+        with (
+            patch("undisorder.cli._config_dir", return_value=config_dir),
+            patch("builtins.input", return_value="typed-key"),
+        ):
+            result = _resolve_acoustid_key(args)
+        assert result == "typed-key"
+        assert (config_dir / "acoustid.key").read_text().strip() == "typed-key"
+
+    def test_interactive_prompt_skip(self, tmp_path, monkeypatch):
+        args = MagicMock()
+        args.acoustid_key = None
+        monkeypatch.delenv("ACOUSTID_API_KEY", raising=False)
+        config_dir = tmp_path / "config"
+        config_dir.mkdir()
+        with (
+            patch("undisorder.cli._config_dir", return_value=config_dir),
+            patch("builtins.input", return_value=""),
+        ):
+            result = _resolve_acoustid_key(args)
+        assert result is None
+        assert not (config_dir / "acoustid.key").exists()

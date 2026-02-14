@@ -65,7 +65,8 @@ def suggest_dirname(meta: Metadata, *, place_name: str | None = None) -> str:
     2. EXIF keywords/subject
     3. GPS place name
     4. Description
-    5. Fallback: YYYY/YYYY-MM
+    5. User comment
+    6. Fallback: YYYY/YYYY-MM
     """
     # Determine the date prefix
     if meta.date_taken:
@@ -96,6 +97,10 @@ def suggest_dirname(meta: Metadata, *, place_name: str | None = None) -> str:
     # Priority 4: Description
     if topic is None and meta.description:
         topic = _truncate_description(meta.description)
+
+    # Priority 5: User comment
+    if topic is None and meta.user_comment:
+        topic = _truncate_description(meta.user_comment)
 
     # Build path
     if date_prefix and topic:

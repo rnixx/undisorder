@@ -21,7 +21,6 @@ def lookup_acoustid(path: pathlib.Path, *, api_key: str | None) -> str | None:
             return recording_id
     except Exception:
         return None
-    return None
 
 
 def lookup_musicbrainz(recording_id: str) -> AudioMetadata | None:
@@ -56,6 +55,21 @@ def lookup_musicbrainz(recording_id: str) -> AudioMetadata | None:
                 year = int(date_str[:4])
             except ValueError:
                 pass
+
+        # Extract track/disc number from medium-list
+        media = release.get("medium-list", [])
+        if media:
+            medium = media[0]
+            try:
+                disc_number = int(medium.get("position", 0)) or None
+            except (ValueError, TypeError):
+                pass
+            tracks = medium.get("track-list", [])
+            if tracks:
+                try:
+                    track_number = int(tracks[0].get("position", 0)) or None
+                except (ValueError, TypeError):
+                    pass
 
     return AudioMetadata(
         source_path=pathlib.Path(""),
@@ -98,5 +112,5 @@ def identify_audio(
         track_number=existing_meta.track_number or lookup_meta.track_number,
         disc_number=existing_meta.disc_number or lookup_meta.disc_number,
         year=existing_meta.year or lookup_meta.year,
-        genre=existing_meta.genre or lookup_meta.genre,
+        genre=existing_meta.genre,
     )

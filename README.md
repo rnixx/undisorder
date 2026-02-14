@@ -79,6 +79,9 @@ undisorder import /path/to/unsorted-media --interactive
 
 # Move files instead of copying
 undisorder import /path/to/unsorted-media --move
+
+# Re-import files when source is newer than previous import
+undisorder import /path/to/unsorted-media --update
 ```
 
 ### Filter what gets imported
@@ -109,12 +112,14 @@ For audio files with missing or incomplete tags, use AcoustID to identify them:
 
 ```bash
 # Identify untagged audio files via AcoustID + MusicBrainz
-undisorder import /path/to/music --identify --acoustid-key=YOUR_KEY
-
-# Or set the key via environment variable
-export ACOUSTID_API_KEY=YOUR_KEY
 undisorder import /path/to/music --identify
 ```
+
+The AcoustID API key is resolved in this order:
+1. `--acoustid-key=YOUR_KEY` CLI flag
+2. `ACOUSTID_API_KEY` environment variable
+3. Saved key from `~/.config/undisorder/acoustid.key`
+4. Interactive prompt (the key is then saved for future use)
 
 Get a free AcoustID API key at https://acoustid.org/new-application.
 
@@ -152,7 +157,6 @@ undisorder creates a `YYYY/YYYY-MM` directory structure with intelligent naming:
 │   └── 2024-07_Geburtstag-Oma/
 │       ├── IMG_1234.jpg
 │       └── IMG_1235.jpg
-└── .undisorder.db
 ```
 
 ### Audio files
@@ -173,7 +177,6 @@ Audio files are organized by Artist/Album:
 ├── Unknown Artist/
 │   └── Unknown Album/
 │       └── untitled_track.mp3
-└── .undisorder.db
 ```
 
 ### Directory name priority (photos/videos)
@@ -182,7 +185,8 @@ Audio files are organized by Artist/Album:
 2. **EXIF keywords/subject** — from photo metadata
 3. **GPS place name** — via reverse geocoding (when enabled)
 4. **Description** — from EXIF ImageDescription
-5. **Fallback** — plain `YYYY/YYYY-MM/`
+5. **User comment** — from EXIF UserComment
+6. **Fallback** — plain `YYYY/YYYY-MM/`
 
 ## How It Works
 
@@ -192,7 +196,7 @@ Audio files are organized by Artist/Album:
 2. **Filter**: Apply `--exclude` / `--exclude-dir` patterns, then `--select` for interactive review
 3. **Metadata**: Extract EXIF dates, GPS, keywords via `exiftool`
 4. **Deduplicate source**: Group by file size, then SHA256 hash
-5. **Check target**: Compare hashes against SQLite index (`.undisorder.db`)
+5. **Check target**: Compare hashes against central SQLite index
 6. **Organize**: Determine target path using metadata + intelligent naming
 7. **Execute**: Copy/move files, update hash index
 
@@ -208,7 +212,7 @@ Audio files are organized by Artist/Album:
 
 ## Hash Database and Metadata Editing
 
-undisorder tracks imported files via SHA256 content hashes in a SQLite database (`.undisorder.db`) inside each target directory. This is how it knows which files have already been imported and avoids duplicates across runs.
+undisorder tracks imported files via SHA256 content hashes in a central SQLite database at `~/.config/undisorder/undisorder.db` (or `$XDG_CONFIG_HOME/undisorder/undisorder.db`). Each target directory's data is stored separately within the same database. This is how it knows which files have already been imported and avoids duplicates across runs.
 
 **Important:** The hashes are computed over the entire file content. If you later edit metadata on imported files — e.g. tagging photos in Digikam, editing ID3 tags in an audio player, or writing EXIF data with exiftool — the file content changes and the stored hash no longer matches the file on disk. This means:
 
@@ -230,4 +234,4 @@ pytest -v
 
 ## License
 
-MIT
+GPL-2.0-only

@@ -2,8 +2,17 @@
 
 import os
 import pathlib
+from unittest.mock import patch
 
 import pytest
+
+
+@pytest.fixture(autouse=True)
+def _use_tmp_db(tmp_path: pathlib.Path):
+    """Redirect the central DB to a temp file for all tests."""
+    db_path = tmp_path / "undisorder-test.db"
+    with patch("undisorder.hashdb._default_db_path", return_value=db_path):
+        yield
 
 
 @pytest.fixture
