@@ -188,6 +188,61 @@ class TestImportPhotoVideo:
         assert "skip" in caplog.text.lower() or "already" in caplog.text.lower()
 
 
+    def test_source_dupes_keeps_oldest_mtime(self, tmp_path: pathlib.Path):
+        """When source contains duplicates, the file with the oldest mtime is imported."""
+        source = tmp_path / "source"
+        source.mkdir()
+        target_img = tmp_path / "photos"
+        target_vid = tmp_path / "videos"
+        target_img.mkdir()
+        target_vid.mkdir()
+
+        content = b"\xff\xd8\xff\xd9duplicate across systems"
+        newer = source / "newer.jpg"
+        older = source / "older.jpg"
+
+        newer.write_bytes(content)
+        older.write_bytes(content)
+
+        # Set older.jpg to an earlier mtime
+        old_time = time.time() - 86400 * 365  # 1 year ago
+        os.utime(older, (old_time, old_time))
+
+        args = MagicMock()
+        args.source = source
+        args.images_target = target_img
+        args.video_target = target_vid
+        args.dry_run = False
+        args.move = False
+        args.geocoding = "off"
+        args.interactive = False
+        args.exclude = []
+        args.exclude_dir = []
+        args.select = False
+        args.update = False
+
+        with patch("undisorder.importer.extract_batch") as mock_extract:
+            from undisorder.metadata import Metadata
+
+            import datetime
+            mock_extract.return_value = {
+                newer: Metadata(source_path=newer, date_taken=datetime.datetime(2024, 3, 15)),
+                older: Metadata(source_path=older, date_taken=datetime.datetime(2024, 3, 15)),
+            }
+            run_import(args)
+
+        # Find the imported file in target
+        imported_files = [
+            pathlib.Path(dirpath) / f
+            for dirpath, _, files in os.walk(target_img)
+            for f in files if not f.endswith(".db")
+        ]
+        assert len(imported_files) == 1
+        # The imported file should have the older mtime (copy2 preserves it)
+        imported_mtime = imported_files[0].stat().st_mtime
+        assert abs(imported_mtime - old_time) < 2
+
+
 class TestImportAudio:
     """Test audio import functionality."""
 
@@ -324,6 +379,46 @@ class TestImportAudio:
                 run_import(args)
 
         assert "skip" in caplog.text.lower() or "already" in caplog.text.lower()
+
+    def test_audio_source_dupes_keeps_oldest_mtime(self, tmp_path: pathlib.Path):
+        """When audio source contains duplicates, the file with the oldest mtime is imported."""
+        source = tmp_path / "source"
+        source.mkdir(exist_ok=True)
+
+        content = b"\xff\xfb\x90\x00duplicate audio across systems"
+        newer = source / "newer.mp3"
+        older = source / "older.mp3"
+
+        newer.write_bytes(content)
+        older.write_bytes(content)
+
+        old_time = time.time() - 86400 * 365
+        os.utime(older, (old_time, old_time))
+
+        args = self._make_args(tmp_path)
+
+        audio_meta_newer = AudioMetadata(
+            source_path=newer, artist="Artist", album="Album",
+            title="Song", track_number=1,
+        )
+        audio_meta_older = AudioMetadata(
+            source_path=older, artist="Artist", album="Album",
+            title="Song", track_number=1,
+        )
+        with patch("undisorder.importer.extract_audio_batch", return_value={
+            newer: audio_meta_newer,
+            older: audio_meta_older,
+        }):
+            run_import(args)
+
+        imported_files = [
+            pathlib.Path(dirpath) / f
+            for dirpath, _, files in os.walk(tmp_path / "musik")
+            for f in files if not f.endswith(".db")
+        ]
+        assert len(imported_files) == 1
+        imported_mtime = imported_files[0].stat().st_mtime
+        assert abs(imported_mtime - old_time) < 2
 
     def test_dupes_includes_audio(self, tmp_path: pathlib.Path, caplog):
         """The dupes command should find duplicates across audio files."""

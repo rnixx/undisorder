@@ -69,8 +69,8 @@ def _import_photo_video(args: argparse.Namespace, result) -> None:
     img_db = HashDB(args.images_target)
     vid_db = HashDB(args.video_target)
 
-    # Phase 1: Deduplicate source files — keep one per hash, track dupes
-    seen_hashes: dict[str, pathlib.Path] = {}  # hash -> first file
+    # Phase 1: Deduplicate source files — keep oldest per hash, track dupes
+    seen_hashes: dict[str, pathlib.Path] = {}  # hash -> oldest file
     unique_files: list[pathlib.Path] = []
     source_dupes: list[tuple[pathlib.Path, str]] = []  # (path, hash)
     for f in media_files:
@@ -79,7 +79,14 @@ def _import_photo_video(args: argparse.Namespace, result) -> None:
             seen_hashes[h] = f
             unique_files.append(f)
         else:
-            source_dupes.append((f, h))
+            existing = seen_hashes[h]
+            if f.stat().st_mtime < existing.stat().st_mtime:
+                # f is older — replace the existing entry
+                seen_hashes[h] = f
+                unique_files[unique_files.index(existing)] = f
+                source_dupes.append((existing, h))
+            else:
+                source_dupes.append((f, h))
 
     # Phase 2: Check against target
     skipped = 0
@@ -266,8 +273,8 @@ def _import_audio(args: argparse.Namespace, result) -> None:
     args.audio_target.mkdir(parents=True, exist_ok=True)
     aud_db = HashDB(args.audio_target)
 
-    # Phase 1: Deduplicate source files — keep one per hash, track dupes
-    seen_hashes: dict[str, pathlib.Path] = {}
+    # Phase 1: Deduplicate source files — keep oldest per hash, track dupes
+    seen_hashes: dict[str, pathlib.Path] = {}  # hash -> oldest file
     unique_files: list[pathlib.Path] = []
     source_dupes: list[tuple[pathlib.Path, str]] = []
     for f in audio_files:
@@ -276,7 +283,13 @@ def _import_audio(args: argparse.Namespace, result) -> None:
             seen_hashes[h] = f
             unique_files.append(f)
         else:
-            source_dupes.append((f, h))
+            existing = seen_hashes[h]
+            if f.stat().st_mtime < existing.stat().st_mtime:
+                seen_hashes[h] = f
+                unique_files[unique_files.index(existing)] = f
+                source_dupes.append((existing, h))
+            else:
+                source_dupes.append((f, h))
 
     # Phase 2: Check against target
     skipped = 0

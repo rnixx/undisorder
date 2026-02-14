@@ -132,8 +132,7 @@ undisorder import /path/to/music --identify
 The AcoustID API key is resolved in this order:
 1. `--acoustid-key=YOUR_KEY` CLI flag
 2. `ACOUSTID_API_KEY` environment variable
-3. Saved key from `~/.config/undisorder/acoustid.key`
-4. Interactive prompt (the key is then saved for future use)
+3. `acoustid_key` in `config.toml` (see Configuration below)
 
 Get a free AcoustID API key at https://acoustid.org/new-application.
 
@@ -150,6 +149,41 @@ undisorder hashdb ~/Bilder/Fotos
 ```
 
 Useful after manually adding/removing files from the target.
+
+### Verbosity
+
+```bash
+# Debug output
+undisorder --verbose import /path/to/media
+
+# Suppress informational output, only show warnings/errors
+undisorder --quiet import /path/to/media
+```
+
+### Configuration
+
+Settings can be persisted in `~/.config/undisorder/config.toml` (or `$XDG_CONFIG_HOME/undisorder/config.toml`). Create or update it interactively:
+
+```bash
+undisorder --configure
+```
+
+This walks through all settings and writes `config.toml`. Existing values are shown as defaults when updating.
+
+Example `config.toml`:
+
+```toml
+images_target = "~/Bilder/Fotos"
+video_target = "~/Videos"
+audio_target = "~/Musik"
+geocoding = "offline"
+identify = true
+acoustid_key = "your-api-key"
+exclude = ["*.wav", "*.aiff"]
+exclude_dir = ["DAW*"]
+```
+
+CLI flags always override config file values. For list fields (`exclude`, `exclude_dir`), CLI and config values are merged.
 
 ## Directory Structure
 
@@ -209,7 +243,7 @@ Audio files are organized by Artist/Album:
 1. **Scan**: Recursively find all photos and videos, classify by extension
 2. **Filter**: Apply `--exclude` / `--exclude-dir` patterns, then `--select` for interactive review
 3. **Metadata**: Extract EXIF dates, GPS, keywords via `exiftool`
-4. **Deduplicate source**: Group by file size, then SHA256 hash
+4. **Deduplicate source**: Group by file size, then SHA256 hash — when duplicates are found, the copy with the oldest modification time is kept
 5. **Check target**: Compare hashes against central SQLite index
 6. **Organize**: Determine target path using metadata + intelligent naming
 7. **Execute**: Copy/move files, update hash index
@@ -220,7 +254,7 @@ Audio files are organized by Artist/Album:
 2. **Filter**: Same exclude/select filtering as photos/videos
 3. **Tags**: Read embedded tags (artist, album, title, track number) via mutagen
 4. **Identify** (optional): For files with missing tags, fingerprint via AcoustID and look up metadata on MusicBrainz
-5. **Deduplicate**: SHA256-based deduplication, same as photos/videos
+5. **Deduplicate**: SHA256-based deduplication, same as photos/videos — oldest copy wins
 6. **Organize**: Place in `Artist/Album/NN_Title.ext` structure
 7. **Execute**: Copy/move files, update hash index
 
