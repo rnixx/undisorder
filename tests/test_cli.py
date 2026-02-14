@@ -1,21 +1,19 @@
 """Tests for undisorder.cli — CLI argument parsing and subcommands."""
 
+from undisorder.audio_metadata import AudioMetadata
+from undisorder.cli import _resolve_acoustid_key
+from undisorder.cli import build_parser
+from undisorder.cli import cmd_check
+from undisorder.cli import cmd_dupes
+from undisorder.cli import cmd_hashdb
+from undisorder.cli import cmd_import
+from unittest.mock import MagicMock
+from unittest.mock import patch
+
 import os
 import pathlib
-import time
-from unittest.mock import MagicMock, patch
-
 import pytest
-
-from undisorder.audio_metadata import AudioMetadata
-from undisorder.cli import (
-    _resolve_acoustid_key,
-    build_parser,
-    cmd_check,
-    cmd_dupes,
-    cmd_hashdb,
-    cmd_import,
-)
+import time
 
 
 class TestBuildParser:
@@ -220,6 +218,7 @@ class TestCmdImport:
 
         with patch("undisorder.cli.extract_batch") as mock_extract:
             from undisorder.metadata import Metadata
+
             import datetime
             mock_extract.return_value = {
                 source / "photo.jpg": Metadata(
@@ -264,6 +263,7 @@ class TestCmdImport:
 
         with patch("undisorder.cli.extract_batch") as mock_extract:
             from undisorder.metadata import Metadata
+
             import datetime
             mock_extract.return_value = {
                 source / "photo.jpg": Metadata(
@@ -308,6 +308,7 @@ class TestCmdImport:
 
         with patch("undisorder.cli.extract_batch") as mock_extract:
             from undisorder.metadata import Metadata
+
             import datetime
             mock_extract.return_value = {
                 source / "photo.jpg": Metadata(
@@ -354,6 +355,7 @@ class TestCmdImport:
 
         with patch("undisorder.cli.extract_batch") as mock_extract:
             from undisorder.metadata import Metadata
+
             import datetime
             mock_extract.return_value = {
                 source / "photo.jpg": Metadata(
@@ -557,6 +559,7 @@ class TestCmdImportExclude:
 
         with patch("undisorder.cli.extract_batch") as mock_extract:
             from undisorder.metadata import Metadata
+
             import datetime
             mock_extract.return_value = {
                 source / "photo.jpg": Metadata(
@@ -583,6 +586,7 @@ class TestCmdImportExclude:
 
         with patch("undisorder.cli.extract_batch") as mock_extract:
             from undisorder.metadata import Metadata
+
             import datetime
             mock_extract.return_value = {
                 source / "photo.jpg": Metadata(
@@ -613,6 +617,7 @@ class TestCmdImportExclude:
             patch("undisorder.cli.extract_batch") as mock_extract,
         ):
             from undisorder.metadata import Metadata
+
             import datetime
             mock_extract.return_value = {
                 vacation / "photo.jpg": Metadata(
@@ -678,6 +683,7 @@ class TestCmdImportSourcePath:
         # First import
         with patch("undisorder.cli.extract_batch") as mock_extract:
             from undisorder.metadata import Metadata
+
             import datetime
             mock_extract.return_value = {
                 photo: Metadata(source_path=photo, date_taken=datetime.datetime(2024, 3, 15))
@@ -690,6 +696,7 @@ class TestCmdImportSourcePath:
         # Second import — should skip because source_path is known
         with patch("undisorder.cli.extract_batch") as mock_extract:
             from undisorder.metadata import Metadata
+
             import datetime
             mock_extract.return_value = {
                 photo: Metadata(source_path=photo, date_taken=datetime.datetime(2024, 3, 15))
@@ -711,6 +718,7 @@ class TestCmdImportSourcePath:
 
         with patch("undisorder.cli.extract_batch") as mock_extract:
             from undisorder.metadata import Metadata
+
             import datetime
             mock_extract.return_value = {
                 source / "a.jpg": Metadata(
@@ -743,6 +751,7 @@ class TestCmdImportSourcePath:
         # First import
         with patch("undisorder.cli.extract_batch") as mock_extract:
             from undisorder.metadata import Metadata
+
             import datetime
             mock_extract.return_value = {
                 photo: Metadata(source_path=photo, date_taken=datetime.datetime(2024, 3, 15))
@@ -767,6 +776,7 @@ class TestCmdImportSourcePath:
         args2 = self._make_args(tmp_path, update=True)
         with patch("undisorder.cli.extract_batch") as mock_extract:
             from undisorder.metadata import Metadata
+
             import datetime
             mock_extract.return_value = {
                 photo: Metadata(source_path=photo, date_taken=datetime.datetime(2024, 3, 15))
@@ -791,6 +801,7 @@ class TestCmdImportSourcePath:
         # First import
         with patch("undisorder.cli.extract_batch") as mock_extract:
             from undisorder.metadata import Metadata
+
             import datetime
             mock_extract.return_value = {
                 photo: Metadata(source_path=photo, date_taken=datetime.datetime(2024, 3, 15))
@@ -803,6 +814,7 @@ class TestCmdImportSourcePath:
         args2 = self._make_args(tmp_path, update=True)
         with patch("undisorder.cli.extract_batch") as mock_extract:
             from undisorder.metadata import Metadata
+
             import datetime
             mock_extract.return_value = {
                 photo: Metadata(source_path=photo, date_taken=datetime.datetime(2024, 3, 15))

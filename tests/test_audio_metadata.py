@@ -1,11 +1,12 @@
 """Tests for undisorder.audio_metadata — audio tag extraction via mutagen."""
 
+from undisorder.audio_metadata import AudioMetadata
+from undisorder.audio_metadata import extract_audio
+from undisorder.audio_metadata import extract_audio_batch
+from unittest.mock import MagicMock
+from unittest.mock import patch
+
 import pathlib
-from unittest.mock import MagicMock, patch
-
-import pytest
-
-from undisorder.audio_metadata import AudioMetadata, extract_audio, extract_audio_batch
 
 
 class TestAudioMetadataDataclass:

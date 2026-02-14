@@ -1,9 +1,8 @@
 """Shared fixtures for undisorder tests."""
 
-import os
-import pathlib
 from unittest.mock import patch
 
+import pathlib
 import pytest
 
 

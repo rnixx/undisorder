@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-import pathlib
 from dataclasses import dataclass
 
 import mutagen
+import pathlib
 
 
 @dataclass

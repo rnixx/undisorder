@@ -1,19 +1,15 @@
 """Tests for undisorder.organizer — sorting logic with intelligent directory naming."""
 
-import datetime
-import pathlib
-
-import pytest
-
 from undisorder.audio_metadata import AudioMetadata
 from undisorder.metadata import Metadata
-from undisorder.organizer import (
-    determine_audio_target_path,
-    determine_target_path,
-    is_meaningful_dirname,
-    resolve_collision,
-    suggest_dirname,
-)
+from undisorder.organizer import determine_audio_target_path
+from undisorder.organizer import determine_target_path
+from undisorder.organizer import is_meaningful_dirname
+from undisorder.organizer import resolve_collision
+from undisorder.organizer import suggest_dirname
+
+import datetime
+import pathlib
 
 
 class TestIsMeaningfulDirname:

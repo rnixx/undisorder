@@ -1,10 +1,9 @@
 """Tests for undisorder.geocoder — GPS reverse geocoding."""
 
-from unittest.mock import MagicMock, patch
-
-import pytest
-
-from undisorder.geocoder import GeocodingMode, Geocoder
+from undisorder.geocoder import Geocoder
+from undisorder.geocoder import GeocodingMode
+from unittest.mock import MagicMock
+from unittest.mock import patch
 
 
 class TestGeocodingMode:

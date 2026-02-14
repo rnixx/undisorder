@@ -48,6 +48,21 @@ pip install -e .
 
 ## Usage
 
+### TL;DR — typical workflow
+
+```bash
+# 1. Pick source folders interactively, preview what would happen
+undisorder import /mnt/backup --select --dry-run
+
+# 2. Happy with the plan? Import for real, with all the bells and whistles
+undisorder import /mnt/backup \
+    --select \
+    --geocoding=online \
+    --identify \
+    --interactive \
+    --exclude '*.wav' --exclude-dir 'DAW*'
+```
+
 ### Find duplicates in a directory
 
 ```bash
@@ -59,11 +74,11 @@ Shows duplicate groups with file paths and sizes. Scans photos, videos, and audi
 ### Import files into your collection
 
 ```bash
-# Preview (dry run)
-undisorder import /path/to/unsorted-media --dry-run
-
-# Import photos, videos, and audio to default locations
+# Simple import — photos, videos, and audio to default locations
 undisorder import /path/to/unsorted-media
+
+# Preview first (dry run)
+undisorder import /path/to/unsorted-media --dry-run
 
 # Custom targets
 undisorder import /path/to/unsorted-media \
@@ -71,17 +86,18 @@ undisorder import /path/to/unsorted-media \
     --video-target ~/Videos \
     --audio-target ~/Musik
 
-# With GPS reverse geocoding (offline, no internet needed)
-undisorder import /path/to/unsorted-media --geocoding=offline
-
-# Interactive mode — confirm each folder name
-undisorder import /path/to/unsorted-media --interactive
-
 # Move files instead of copying
 undisorder import /path/to/unsorted-media --move
 
 # Re-import files when source is newer than previous import
 undisorder import /path/to/unsorted-media --update
+
+# Full workflow: select folders, geocode, identify audio, confirm names
+undisorder import /path/to/unsorted-media \
+    --select \
+    --geocoding=online \
+    --identify \
+    --interactive
 ```
 
 ### Filter what gets imported
@@ -92,16 +108,15 @@ When importing from deep backup folders, not everything should be imported — e
 # Exclude WAV files and DAW project directories
 undisorder import /mnt/backup \
     --exclude '*.wav' \
-    --exclude-dir 'DAW*' --exclude-dir '.ableton' \
-    --dry-run
+    --exclude-dir 'DAW*' --exclude-dir '.ableton'
 
 # Interactively review each directory before importing
-undisorder import /mnt/backup --select --dry-run
+undisorder import /mnt/backup --select
 
 # Combine: exclude by pattern, then pick from what remains
 undisorder import /mnt/backup \
     --exclude '*.wav' --exclude-dir 'DAW*' \
-    --select --dry-run
+    --select
 ```
 
 Patterns are case-insensitive and use glob syntax. `--exclude` matches filenames, `--exclude-dir` matches any directory component in the path.
@@ -111,7 +126,6 @@ Patterns are case-insensitive and use glob syntax. `--exclude` matches filenames
 For audio files with missing or incomplete tags, use AcoustID to identify them:
 
 ```bash
-# Identify untagged audio files via AcoustID + MusicBrainz
 undisorder import /path/to/music --identify
 ```
 
@@ -222,15 +236,44 @@ undisorder tracks imported files via SHA256 content hashes in a central SQLite d
 
 If you routinely edit metadata on imported files, run `undisorder hashdb <target>` afterwards to keep the index in sync.
 
-## Development
+## Contributing
+
+### Setup
 
 ```bash
-# Run tests
-pytest
-
-# Run tests with verbose output
-pytest -v
+git clone https://github.com/rnixx/undisorder.git
+cd undisorder
+python -m venv venv
+source venv/bin/activate
+pip install -e .[dev]
 ```
+
+### QA checks
+
+All checks must pass before merging. Run them locally:
+
+```bash
+# Tests
+pytest -v
+
+# Linting
+ruff check src/ tests/
+
+# Import sorting (Plone profile)
+isort --check src/ tests/
+
+# Type checking
+ty check src/ tests/
+```
+
+Fix auto-fixable issues:
+
+```bash
+ruff check --fix src/ tests/
+isort src/ tests/
+```
+
+These same checks run in CI via GitHub Actions on every push and pull request.
 
 ## License
 

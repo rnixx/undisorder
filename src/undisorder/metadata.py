@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+from dataclasses import field
+
 import datetime
 import json
 import pathlib
 import subprocess
-from dataclasses import dataclass, field
 
 
 @dataclass
@@ -139,7 +141,7 @@ def _parse_one(raw: dict[str, object], path: pathlib.Path) -> Metadata:
         gps_lon=gps_lon,
         keywords=_parse_keywords(raw),
         description=_parse_description(raw),
-        user_comment=raw.get("EXIF:UserComment") if isinstance(raw.get("EXIF:UserComment"), str) else None,
+        user_comment=comment if isinstance(comment := raw.get("EXIF:UserComment"), str) else None,
         subject=_parse_subject(raw),
     )
 

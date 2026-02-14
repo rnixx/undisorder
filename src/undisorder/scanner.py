@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+from dataclasses import field
+
 import enum
 import pathlib
-from dataclasses import dataclass, field
+
 
 PHOTO_EXTENSIONS: set[str] = {
     ".jpg", ".jpeg", ".png", ".tiff", ".tif",

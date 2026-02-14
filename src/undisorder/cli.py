@@ -2,32 +2,34 @@
 
 from __future__ import annotations
 
+from tqdm import tqdm
+from undisorder.audio_metadata import AudioMetadata
+from undisorder.audio_metadata import extract_audio_batch
+from undisorder.geocoder import Geocoder
+from undisorder.geocoder import GeocodingMode
+from undisorder.hashdb import _config_dir
+from undisorder.hashdb import HashDB
+from undisorder.hasher import find_duplicates
+from undisorder.hasher import hash_file
+from undisorder.metadata import extract_batch
+from undisorder.metadata import Metadata
+from undisorder.musicbrainz import identify_audio
+from undisorder.organizer import determine_audio_target_path
+from undisorder.organizer import determine_target_path
+from undisorder.organizer import resolve_collision
+from undisorder.organizer import suggest_dirname
+from undisorder.scanner import classify
+from undisorder.scanner import FileType
+from undisorder.scanner import scan
+from undisorder.selector import apply_exclude_patterns
+from undisorder.selector import filter_scan_result
+from undisorder.selector import group_by_directory
+from undisorder.selector import interactive_select
+
 import argparse
 import os
 import pathlib
 import shutil
-
-from tqdm import tqdm
-
-from undisorder.audio_metadata import AudioMetadata, extract_audio_batch
-from undisorder.geocoder import GeocodingMode, Geocoder
-from undisorder.hashdb import HashDB, _config_dir
-from undisorder.hasher import find_duplicates, hash_file
-from undisorder.metadata import Metadata, extract_batch
-from undisorder.musicbrainz import identify_audio
-from undisorder.organizer import (
-    determine_audio_target_path,
-    determine_target_path,
-    resolve_collision,
-    suggest_dirname,
-)
-from undisorder.scanner import FileType, classify, scan
-from undisorder.selector import (
-    apply_exclude_patterns,
-    filter_scan_result,
-    group_by_directory,
-    interactive_select,
-)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -151,7 +153,8 @@ def cmd_check(args: argparse.Namespace) -> None:
 
     print(f"Found {len(dupes)} hash(es) with duplicate files:")
     for d in dupes:
-        print(f"  Hash {d['hash'][:12]}... appears {d['count']} times")
+        hash_str = str(d["hash"])
+        print(f"  Hash {hash_str[:12]}... appears {d['count']} times")
 
 
 def cmd_hashdb(args: argparse.Namespace) -> None:
@@ -307,7 +310,7 @@ def _import_photo_video(args: argparse.Namespace, result) -> None:
 
         # Geocode if applicable
         place_name = None
-        if meta.has_gps:
+        if meta.has_gps and meta.gps_lat is not None and meta.gps_lon is not None:
             place_name = geocoder.reverse(meta.gps_lat, meta.gps_lon)
 
         # Determine target

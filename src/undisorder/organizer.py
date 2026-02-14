@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+from undisorder.audio_metadata import AudioMetadata
+from undisorder.metadata import Metadata
+
 import pathlib
 import re
 
-from undisorder.audio_metadata import AudioMetadata
-from undisorder.metadata import Metadata
 
 # Directory names that are generic and not meaningful for organization
 _GENERIC_NAMES: set[str] = {

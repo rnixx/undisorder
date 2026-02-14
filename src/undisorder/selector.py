@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+from undisorder.scanner import classify
+from undisorder.scanner import FileType
+from undisorder.scanner import ScanResult
+
 import fnmatch
 import pathlib
-from dataclasses import dataclass
-
-from undisorder.scanner import ScanResult, classify, FileType
 
 
 @dataclass

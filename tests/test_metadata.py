@@ -1,12 +1,13 @@
 """Tests for undisorder.metadata — EXIF/metadata extraction via exiftool."""
 
+from undisorder.metadata import extract
+from undisorder.metadata import extract_batch
+from undisorder.metadata import Metadata
+from unittest.mock import patch
+
 import datetime
 import pathlib
-from unittest.mock import MagicMock, patch
-
 import pytest
-
-from undisorder.metadata import Metadata, extract, extract_batch
 
 
 def _make_exiftool_result(**overrides: object) -> dict[str, object]:

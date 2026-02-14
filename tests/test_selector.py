@@ -2,20 +2,17 @@
 
 from __future__ import annotations
 
-import pathlib
-
-import pytest
-
 from undisorder.scanner import ScanResult
-from undisorder.selector import (
-    DirectoryGroup,
-    apply_exclude_patterns,
-    filter_scan_result,
-    format_group_summary,
-    format_size,
-    group_by_directory,
-    interactive_select,
-)
+from undisorder.selector import apply_exclude_patterns
+from undisorder.selector import DirectoryGroup
+from undisorder.selector import filter_scan_result
+from undisorder.selector import format_group_summary
+from undisorder.selector import format_size
+from undisorder.selector import group_by_directory
+from undisorder.selector import interactive_select
+
+import pathlib
+import pytest
 
 
 class TestApplyExcludePatterns:

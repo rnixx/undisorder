@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-import hashlib
-import pathlib
 from collections import defaultdict
 from dataclasses import dataclass
+
+import hashlib
+import pathlib
 
 
 @dataclass

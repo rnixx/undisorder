@@ -1,10 +1,10 @@
 """Tests for undisorder.hasher — 2-phase duplicate detection."""
 
+from undisorder.hasher import find_duplicates
+from undisorder.hasher import hash_file
+
 import pathlib
-
 import pytest
-
-from undisorder.hasher import DuplicateGroup, find_duplicates, hash_file
 
 
 class TestHashFile:

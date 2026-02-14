@@ -1,8 +1,11 @@
 """Tests for undisorder.scanner — file discovery and classification."""
 
-import pathlib
+from undisorder.scanner import AUDIO_EXTENSIONS
+from undisorder.scanner import classify
+from undisorder.scanner import FileType
+from undisorder.scanner import scan
 
-from undisorder.scanner import AUDIO_EXTENSIONS, FileType, classify, scan
+import pathlib
 
 
 class TestClassify:

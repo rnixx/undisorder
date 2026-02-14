@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-import pathlib
+from undisorder.audio_metadata import AudioMetadata
 
 import acoustid
 import musicbrainzngs
+import pathlib
 
-from undisorder.audio_metadata import AudioMetadata
 
 musicbrainzngs.set_useragent("undisorder", "0.1.0", "https://github.com/undisorder")
 

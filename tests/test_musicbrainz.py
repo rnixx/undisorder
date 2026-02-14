@@ -1,34 +1,18 @@
 """Tests for undisorder.musicbrainz — AcoustID + MusicBrainz lookup."""
 
-import pathlib
-from unittest.mock import MagicMock, patch
-
-import pytest
-
 from undisorder.audio_metadata import AudioMetadata
-from undisorder.musicbrainz import (
-    identify_audio,
-    lookup_acoustid,
-    lookup_musicbrainz,
-)
+from undisorder.musicbrainz import identify_audio
+from undisorder.musicbrainz import lookup_acoustid
+from undisorder.musicbrainz import lookup_musicbrainz
+from unittest.mock import patch
+
+import pathlib
 
 
 class TestLookupAcoustid:
     """Test AcoustID fingerprint lookup."""
 
     def test_returns_recording_id(self):
-        mock_results = {
-            "status": "ok",
-            "results": [
-                {
-                    "id": "acoustid-123",
-                    "score": 0.95,
-                    "recordings": [
-                        {"id": "mb-recording-456"}
-                    ],
-                }
-            ],
-        }
         with patch("undisorder.musicbrainz.acoustid.match", return_value=iter([
             ("mb-recording-456", "Title", "Artist", "Album", None),
         ])):

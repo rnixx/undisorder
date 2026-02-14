@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-import enum
-
-import reverse_geocode
 from geopy.geocoders import Nominatim
+
+import enum
+import reverse_geocode
 
 
 class GeocodingMode(enum.Enum):

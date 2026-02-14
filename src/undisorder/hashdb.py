@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+from undisorder.hasher import hash_file
+
 import datetime
 import os
 import pathlib
 import sqlite3
 
-from undisorder.hasher import hash_file
 
 _SCHEMA = """\
 CREATE TABLE IF NOT EXISTS files (

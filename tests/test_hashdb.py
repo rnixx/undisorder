@@ -1,12 +1,10 @@
 """Tests for undisorder.hashdb — SQLite hash index CRUD."""
 
-import datetime
-import pathlib
-import sqlite3
-
-import pytest
-
 from undisorder.hashdb import HashDB
+
+import pathlib
+import pytest
+import sqlite3
 
 
 @pytest.fixture
@@ -149,7 +147,7 @@ class TestHashDBRebuild:
     def test_rebuild_clears_old_entries(self, tmp_path: pathlib.Path, tmp_target: pathlib.Path):
         db = HashDB(tmp_target, db_path=tmp_path / "test.db")
         db.insert(hash="old", file_size=1, file_path="gone.jpg")
-        count = db.rebuild(tmp_target)
+        db.rebuild(tmp_target)
         # gone.jpg doesn't exist, so it should be cleared
         assert db.hash_exists("old") is False
 
@@ -169,6 +167,7 @@ class TestHashDBImports:
         # Second insert with same source_path should be ignored (INSERT OR IGNORE)
         db.record_import("/media/sd/photo.jpg", "hash2", "2025/photo.jpg")
         imp = db.get_import("/media/sd/photo.jpg")
+        assert imp is not None
         # Original values should be preserved
         assert imp["hash"] == "hash1"
         assert imp["file_path"] == "2024/photo.jpg"
@@ -188,6 +187,7 @@ class TestHashDBImports:
         db.record_import("/media/sd/photo.jpg", "hash1", "2024/photo.jpg")
         db.update_import("/media/sd/photo.jpg", "hash2", "2025/photo.jpg")
         imp = db.get_import("/media/sd/photo.jpg")
+        assert imp is not None
         assert imp["hash"] == "hash2"
         assert imp["file_path"] == "2025/photo.jpg"
 
