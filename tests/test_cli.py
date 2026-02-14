@@ -7,6 +7,7 @@ from undisorder.cli import cmd_hashdb
 from unittest.mock import MagicMock
 
 import logging
+import os
 import pathlib
 import pytest
 
@@ -106,6 +107,17 @@ class TestBuildParser:
         args = parser.parse_args(["--quiet", "dupes", "/tmp/s"])
         assert args.quiet is True
 
+    def test_dupes_delete_flag(self):
+        parser = build_parser()
+        args = parser.parse_args(["dupes", "--delete", "/tmp/source"])
+        assert args.command == "dupes"
+        assert args.delete is True
+
+    def test_dupes_delete_flag_default(self):
+        parser = build_parser()
+        args = parser.parse_args(["dupes", "/tmp/source"])
+        assert args.delete is False
+
     def test_verbose_and_quiet_mutually_exclusive(self):
         parser = build_parser()
         with pytest.raises(SystemExit):
@@ -169,7 +181,7 @@ class TestCmdDupes:
         args.source = tmp_path
         with caplog.at_level(logging.INFO, logger="undisorder"):
             cmd_dupes(args)
-        assert "No files found" in caplog.text
+        assert "No media files found" in caplog.text
 
     def test_no_duplicates(self, tmp_path: pathlib.Path, caplog):
         (tmp_path / "a.jpg").write_bytes(b"unique 1")
@@ -177,10 +189,71 @@ class TestCmdDupes:
 
         args = MagicMock()
         args.source = tmp_path
+        args.delete = False
         with caplog.at_level(logging.INFO, logger="undisorder"):
             cmd_dupes(args)
 
         assert "No duplicates" in caplog.text
+
+    def test_delete_removes_newer_duplicates(self, tmp_path: pathlib.Path, caplog):
+        content = b"duplicate jpeg content here"
+        oldest = tmp_path / "oldest.jpg"
+        middle = tmp_path / "middle.jpg"
+        newest = tmp_path / "newest.jpg"
+        for f in (oldest, middle, newest):
+            f.write_bytes(content)
+
+        # Set distinct mtimes: oldest=1000, middle=2000, newest=3000
+        os.utime(oldest, (1000, 1000))
+        os.utime(middle, (2000, 2000))
+        os.utime(newest, (3000, 3000))
+
+        args = MagicMock()
+        args.source = tmp_path
+        args.delete = True
+        with caplog.at_level(logging.INFO, logger="undisorder"):
+            cmd_dupes(args)
+
+        assert oldest.exists(), "oldest file should be kept"
+        assert not middle.exists(), "middle file should be deleted"
+        assert not newest.exists(), "newest file should be deleted"
+
+    def test_delete_logs_kept_and_removed(self, tmp_path: pathlib.Path, caplog):
+        content = b"duplicate jpeg content here"
+        kept = tmp_path / "kept.jpg"
+        removed = tmp_path / "removed.jpg"
+        kept.write_bytes(content)
+        removed.write_bytes(content)
+
+        os.utime(kept, (1000, 1000))
+        os.utime(removed, (2000, 2000))
+
+        args = MagicMock()
+        args.source = tmp_path
+        args.delete = True
+        with caplog.at_level(logging.INFO, logger="undisorder"):
+            cmd_dupes(args)
+
+        assert "Keeping" in caplog.text
+        assert "Deleted" in caplog.text
+        assert str(kept) in caplog.text
+        assert str(removed) in caplog.text
+
+    def test_without_delete_does_not_remove(self, tmp_path: pathlib.Path, caplog):
+        content = b"duplicate jpeg content here"
+        a = tmp_path / "a.jpg"
+        b = tmp_path / "b.jpg"
+        a.write_bytes(content)
+        b.write_bytes(content)
+
+        args = MagicMock()
+        args.source = tmp_path
+        args.delete = False
+        with caplog.at_level(logging.INFO, logger="undisorder"):
+            cmd_dupes(args)
+
+        assert a.exists(), "file should not be removed without --delete"
+        assert b.exists(), "file should not be removed without --delete"
 
 
 class TestCmdCheck:

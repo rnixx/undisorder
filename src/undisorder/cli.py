@@ -41,6 +41,8 @@ def build_parser() -> argparse.ArgumentParser:
     # --- dupes ---
     p_dupes = sub.add_parser("dupes", help="Find duplicates in source directory")
     p_dupes.add_argument("source", type=pathlib.Path, help="Source directory to scan")
+    p_dupes.add_argument("--delete", action="store_true", default=False,
+                         help="Delete newer duplicates, keeping the oldest file in each group")
 
     # --- import ---
     p_import = sub.add_parser("import", help="Import files into collection")
@@ -112,32 +114,62 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _human_size(n: int) -> str:
+    for unit in ("B", "KB", "MB", "GB", "TB"):
+        if abs(n) < 1024:
+            return f"{n:.1f} {unit}" if unit != "B" else f"{n} B"
+        n /= 1024
+    return f"{n:.1f} PB"
+
+
 def cmd_dupes(args: argparse.Namespace) -> None:
     """Find duplicates in a source directory."""
     logger.info(f"Scanning {args.source} ...")
     result = scan(args.source)
-    all_files = result.all_files
+    media_files = result.media_files
     logger.info(
-        f"Found {len(all_files)} files "
+        f"Found {len(media_files)} media files "
         f"({len(result.photos)} photos, {len(result.videos)} videos, {len(result.audios)} audio)"
     )
+    if result.unknown:
+        logger.debug(f"skipping {len(result.unknown)} non-media file(s)")
 
-    if not all_files:
-        logger.info("No files found.")
+    if not media_files:
+        logger.info("No media files found.")
         return
 
-    groups = find_duplicates(all_files)
+    groups = find_duplicates(media_files)
 
     if not groups:
         logger.info("No duplicates found.")
         return
 
     logger.info(f"\nFound {len(groups)} duplicate group(s):\n")
+    total_dupes = 0
+    wasted_bytes = 0
+    deleted_count = 0
+    freed_bytes = 0
     for i, group in enumerate(groups, 1):
         logger.info(f"  Group {i} ({len(group.paths)} files, {group.file_size} bytes):")
         for p in group.paths:
             logger.info(f"    {p}")
         logger.info("")
+        extras = len(group.paths) - 1
+        total_dupes += extras
+        wasted_bytes += extras * group.file_size
+
+        if args.delete:
+            sorted_paths = sorted(group.paths, key=lambda p: p.stat().st_mtime)
+            logger.info(f"    Keeping {sorted_paths[0]}")
+            for p in sorted_paths[1:]:
+                p.unlink()
+                logger.info(f"    Deleted {p}")
+                deleted_count += 1
+                freed_bytes += group.file_size
+
+    logger.info(f"{total_dupes} duplicate file(s), {_human_size(wasted_bytes)} wasted")
+    if args.delete:
+        logger.info(f"Deleted {deleted_count} file(s), freed {_human_size(freed_bytes)}")
 
 
 def cmd_check(args: argparse.Namespace) -> None:

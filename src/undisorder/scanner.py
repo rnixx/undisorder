@@ -6,7 +6,10 @@ from dataclasses import dataclass
 from dataclasses import field
 
 import enum
+import logging
 import pathlib
+
+logger = logging.getLogger(__name__)
 
 
 PHOTO_EXTENSIONS: set[str] = {
@@ -53,6 +56,10 @@ class ScanResult:
         return len(self.photos) + len(self.videos) + len(self.audios) + len(self.unknown)
 
     @property
+    def media_files(self) -> list[pathlib.Path]:
+        return self.photos + self.videos + self.audios
+
+    @property
     def all_files(self) -> list[pathlib.Path]:
         return self.photos + self.videos + self.audios + self.unknown
 
@@ -78,15 +85,19 @@ def scan(directory: pathlib.Path) -> ScanResult:
         raise FileNotFoundError(f"Directory not found: {directory}")
 
     result = ScanResult()
+    skipped_hidden = 0
     for path in sorted(directory.rglob("*")):
         if not path.is_file():
             continue
         # Skip hidden files and files inside hidden directories
         rel = path.relative_to(directory)
         if any(part.startswith(".") for part in rel.parts):
+            skipped_hidden += 1
+            logger.debug(f"skip hidden: {rel}")
             continue
 
         file_type = classify(path)
+        logger.debug(f"{file_type.value}: {rel}")
         if file_type is FileType.PHOTO:
             result.photos.append(path)
         elif file_type is FileType.VIDEO:
@@ -96,4 +107,6 @@ def scan(directory: pathlib.Path) -> ScanResult:
         else:
             result.unknown.append(path)
 
+    if skipped_hidden:
+        logger.debug(f"skipped {skipped_hidden} hidden file(s)")
     return result

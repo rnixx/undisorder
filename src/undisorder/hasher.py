@@ -6,7 +6,10 @@ from collections import defaultdict
 from dataclasses import dataclass
 
 import hashlib
+import logging
 import pathlib
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -41,19 +44,30 @@ def find_duplicates(paths: list[pathlib.Path]) -> list[DuplicateGroup]:
     for p in paths:
         size_groups[p.stat().st_size].append(p)
 
+    unique_by_size = sum(1 for g in size_groups.values() if len(g) < 2)
+    candidates = {s: g for s, g in size_groups.items() if len(g) >= 2}
+    files_to_hash = sum(len(g) for g in candidates.values())
+    logger.debug(
+        f"phase 1 (size grouping): {len(paths)} files -> "
+        f"{unique_by_size} unique by size, "
+        f"{len(candidates)} size group(s) with {files_to_hash} files to hash"
+    )
+
     # Phase 2: hash only same-size groups
     duplicates: list[DuplicateGroup] = []
-    for size, group in size_groups.items():
-        if len(group) < 2:
-            continue
-
+    hashed = 0
+    for size, group in candidates.items():
+        logger.debug(f"hashing {len(group)} files of size {size}")
         hash_groups: dict[str, list[pathlib.Path]] = defaultdict(list)
         for p in group:
             h = hash_file(p)
+            hashed += 1
+            logger.debug(f"  {h[:12]}.. {p}")
             hash_groups[h].append(p)
 
         for h, files in hash_groups.items():
             if len(files) >= 2:
                 duplicates.append(DuplicateGroup(hash=h, file_size=size, paths=files))
 
+    logger.debug(f"phase 2 (hashing): {hashed} files hashed, {len(duplicates)} duplicate group(s)")
     return duplicates
