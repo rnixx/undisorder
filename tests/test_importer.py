@@ -766,3 +766,202 @@ class TestImportSourcePath:
                 run_import(args)
 
         assert "skip" in caplog.text.lower() or "No audio files to import" in caplog.text
+
+
+class TestImportEdgeCases:
+    """Test edge cases and less common import paths."""
+
+    def _make_args(self, tmp_path, **overrides):
+        source = tmp_path / "source"
+        source.mkdir(exist_ok=True)
+        args = MagicMock()
+        args.source = source
+        args.images_target = tmp_path / "photos"
+        args.video_target = tmp_path / "videos"
+        args.audio_target = tmp_path / "musik"
+        args.dry_run = False
+        args.move = False
+        args.geocoding = "off"
+        args.interactive = False
+        args.identify = False
+        args.acoustid_key = None
+        args.exclude = []
+        args.exclude_dir = []
+        args.select = False
+        args.update = False
+        for k, v in overrides.items():
+            setattr(args, k, v)
+        (tmp_path / "photos").mkdir(exist_ok=True)
+        (tmp_path / "videos").mkdir(exist_ok=True)
+        (tmp_path / "musik").mkdir(exist_ok=True)
+        return args
+
+    def test_empty_source_no_media(self, tmp_path, caplog):
+        """Empty source directory — no media files found."""
+        args = self._make_args(tmp_path)
+        with caplog.at_level(logging.INFO, logger="undisorder"):
+            run_import(args)
+        assert "No media files found" in caplog.text
+
+    def test_audio_only_no_photos(self, tmp_path, caplog):
+        """Source with only audio — photo/video import is skipped."""
+        source = tmp_path / "source"
+        source.mkdir(exist_ok=True)
+        (source / "song.mp3").write_bytes(b"\xff\xfb\x90\x00only audio here")
+
+        args = self._make_args(tmp_path)
+
+        audio_meta = AudioMetadata(
+            source_path=source / "song.mp3",
+            artist="Artist", album="Album", title="Song", track_number=1,
+        )
+        with patch("undisorder.importer.extract_audio_batch", return_value={
+            source / "song.mp3": audio_meta,
+        }):
+            with caplog.at_level(logging.INFO, logger="undisorder"):
+                run_import(args)
+
+        assert "audio" in caplog.text.lower()
+        # No photo/video import messages
+        assert "photo/video" not in caplog.text.lower()
+
+    def test_photo_update_move_mode(self, tmp_path):
+        """Update with --move removes source and overwrites target."""
+        source = tmp_path / "source"
+        source.mkdir(exist_ok=True)
+        photo = source / "photo.jpg"
+        photo.write_bytes(b"\xff\xd8\xff\xd9original")
+
+        args = self._make_args(tmp_path)
+
+        # First import (copy)
+        with patch("undisorder.importer.extract_batch") as mock_extract:
+            from undisorder.metadata import Metadata
+
+            import datetime
+            mock_extract.return_value = {
+                photo: Metadata(source_path=photo, date_taken=datetime.datetime(2024, 3, 15))
+            }
+            run_import(args)
+
+        from undisorder.hashdb import HashDB
+        img_db = HashDB(tmp_path / "photos")
+        imp = img_db.get_import(str(photo))
+        assert imp is not None
+        old_target = tmp_path / "photos" / imp["file_path"]
+        assert old_target.exists()
+        img_db.close()
+
+        # Make source newer with new content
+        time.sleep(0.05)
+        photo.write_bytes(b"\xff\xd8\xff\xd9updated content")
+
+        # Second import with --update --move
+        args2 = self._make_args(tmp_path, update=True, move=True)
+        with patch("undisorder.importer.extract_batch") as mock_extract:
+            from undisorder.metadata import Metadata
+
+            import datetime
+            mock_extract.return_value = {
+                photo: Metadata(source_path=photo, date_taken=datetime.datetime(2024, 3, 15))
+            }
+            run_import(args2)
+
+        # Source should be gone (move mode)
+        assert not photo.exists()
+        # Target should have updated content
+        assert old_target.read_bytes() == b"\xff\xd8\xff\xd9updated content"
+
+    def test_audio_update_when_source_newer(self, tmp_path, caplog):
+        """Audio with --update, source newer than target triggers re-import."""
+        source = tmp_path / "source"
+        source.mkdir(exist_ok=True)
+        song = source / "song.mp3"
+        song.write_bytes(b"\xff\xfb\x90\x00original audio")
+
+        args = self._make_args(tmp_path)
+
+        audio_meta = AudioMetadata(
+            source_path=song, artist="Artist", album="Album",
+            title="Song", track_number=1,
+        )
+
+        # First import
+        with patch("undisorder.importer.extract_audio_batch", return_value={song: audio_meta}):
+            run_import(args)
+
+        from undisorder.hashdb import HashDB
+        aud_db = HashDB(tmp_path / "musik")
+        imp = aud_db.get_import(str(song))
+        assert imp is not None
+        old_target = tmp_path / "musik" / imp["file_path"]
+        assert old_target.exists()
+        old_content = old_target.read_bytes()
+        aud_db.close()
+
+        # Make source newer
+        time.sleep(0.05)
+        song.write_bytes(b"\xff\xfb\x90\x00updated audio after tagging")
+
+        # Second import with --update
+        args2 = self._make_args(tmp_path, update=True)
+        with patch("undisorder.importer.extract_audio_batch", return_value={song: audio_meta}):
+            with caplog.at_level(logging.INFO, logger="undisorder"):
+                run_import(args2)
+
+        assert old_target.read_bytes() != old_content
+        assert "updated" in caplog.text.lower() or "import" in caplog.text.lower()
+
+    def test_select_keyboard_interrupt(self, tmp_path, caplog):
+        """KeyboardInterrupt during interactive select aborts gracefully."""
+        source = tmp_path / "source"
+        source.mkdir(exist_ok=True)
+        (source / "photo.jpg").write_bytes(b"\xff\xd8\xff\xd9image")
+
+        args = self._make_args(tmp_path, select=True)
+
+        with patch("undisorder.importer.interactive_select", side_effect=KeyboardInterrupt):
+            with caplog.at_level(logging.INFO, logger="undisorder"):
+                run_import(args)
+
+        assert "Aborted" in caplog.text
+
+    def test_dry_run_does_not_create_target_dirs(self, tmp_path):
+        """Dry run should not create target directories."""
+        source = tmp_path / "source"
+        source.mkdir()
+        (source / "photo.jpg").write_bytes(b"\xff\xd8\xff\xd9image")
+
+        target_img = tmp_path / "new_photos"
+        target_vid = tmp_path / "new_videos"
+        target_aud = tmp_path / "new_musik"
+
+        args = MagicMock()
+        args.source = source
+        args.images_target = target_img
+        args.video_target = target_vid
+        args.audio_target = target_aud
+        args.dry_run = True
+        args.move = False
+        args.geocoding = "off"
+        args.interactive = False
+        args.exclude = []
+        args.exclude_dir = []
+        args.select = False
+        args.update = False
+
+        with patch("undisorder.importer.extract_batch") as mock_extract:
+            from undisorder.metadata import Metadata
+
+            import datetime
+            mock_extract.return_value = {
+                source / "photo.jpg": Metadata(
+                    source_path=source / "photo.jpg",
+                    date_taken=datetime.datetime(2024, 3, 15),
+                )
+            }
+            run_import(args)
+
+        assert not target_img.exists()
+        assert not target_vid.exists()
+        assert not target_aud.exists()

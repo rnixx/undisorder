@@ -112,6 +112,40 @@ class TestBuildParser:
             parser.parse_args(["--verbose", "--quiet", "dupes", "/tmp/s"])
 
 
+class TestMain:
+    """Test main() entry point dispatch."""
+
+    def test_configure_flag(self, tmp_path, monkeypatch):
+        from undisorder.cli import main
+        from unittest.mock import patch
+        monkeypatch.setattr(
+            "sys.argv", ["undisorder", "--configure"],
+        )
+        with patch("undisorder.cli.create_config_interactive") as mock_configure:
+            main()
+        mock_configure.assert_called_once()
+
+    def test_no_command_prints_help(self, capsys, monkeypatch):
+        from undisorder.cli import main
+        monkeypatch.setattr("sys.argv", ["undisorder"])
+        main()
+        captured = capsys.readouterr()
+        assert "usage" in captured.out.lower()
+
+    def test_import_dispatches(self, tmp_path, monkeypatch, caplog):
+        from undisorder.cli import main
+        source = tmp_path / "source"
+        source.mkdir()
+        monkeypatch.setattr(
+            "sys.argv",
+            ["undisorder", "import", str(source), "--dry-run"],
+        )
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "cfg"))
+        with caplog.at_level(logging.INFO, logger="undisorder"):
+            main()
+        assert "Scanning" in caplog.text
+
+
 class TestCmdDupes:
     """Test the dupes subcommand."""
 
@@ -129,6 +163,13 @@ class TestCmdDupes:
         assert "1 duplicate group" in caplog.text
         assert "a.jpg" in caplog.text
         assert "b.jpg" in caplog.text
+
+    def test_empty_directory(self, tmp_path: pathlib.Path, caplog):
+        args = MagicMock()
+        args.source = tmp_path
+        with caplog.at_level(logging.INFO, logger="undisorder"):
+            cmd_dupes(args)
+        assert "No files found" in caplog.text
 
     def test_no_duplicates(self, tmp_path: pathlib.Path, caplog):
         (tmp_path / "a.jpg").write_bytes(b"unique 1")

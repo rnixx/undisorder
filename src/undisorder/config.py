@@ -71,7 +71,7 @@ def merge_config_into_args(args, config: dict) -> None:
         if cfg_val is not None:
             setattr(args, key, pathlib.Path(cfg_val).expanduser())
         else:
-            setattr(args, key, pathlib.Path(_DEFAULTS[key]).expanduser())
+            setattr(args, key, pathlib.Path(str(_DEFAULTS[key])).expanduser())
 
     for key in _BOOL_KEYS:
         cli_val = getattr(args, key, None)
