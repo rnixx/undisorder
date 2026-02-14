@@ -23,6 +23,7 @@ dependencies = [
 dev = [
     "isort",
     "pytest",
+    "pytest-cov",
     "ruff",
     "ty",
 ]
@@ -36,6 +37,15 @@ where = ["src"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
+
+[tool.coverage.run]
+source = ["undisorder"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+skip_empty = true
+exclude_lines = ["pragma: no cover", "if __name__ == .__main__."]
 
 [tool.isort]
 profile = "plone"
