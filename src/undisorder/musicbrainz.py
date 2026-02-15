@@ -18,7 +18,7 @@ def fingerprint_audio(path: pathlib.Path) -> tuple[float, str] | None:
     Returns (duration, fingerprint) or None on failure.
     """
     try:
-        duration, fingerprint = acoustid.fingerprint(str(path))
+        duration, fingerprint = acoustid.fingerprint_file(str(path))
         return (duration, fingerprint)
     except Exception:
         return None

@@ -103,10 +103,6 @@ def build_parser() -> argparse.ArgumentParser:
         help="Re-import files when source is newer than previous import",
     )
 
-    # --- check ---
-    p_check = sub.add_parser("check", help="Check target for duplicates")
-    p_check.add_argument("target", type=pathlib.Path, help="Target directory to check")
-
     # --- hashdb ---
     p_hashdb = sub.add_parser("hashdb", help="Rebuild hash index for target")
     p_hashdb.add_argument("target", type=pathlib.Path, help="Target directory to index")
@@ -114,7 +110,7 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _human_size(n: int) -> str:
+def _human_size(n: int | float) -> str:
     for unit in ("B", "KB", "MB", "GB", "TB"):
         if abs(n) < 1024:
             return f"{n:.1f} {unit}" if unit != "B" else f"{n} B"
@@ -172,22 +168,6 @@ def cmd_dupes(args: argparse.Namespace) -> None:
         logger.info(f"Deleted {deleted_count} file(s), freed {_human_size(freed_bytes)}")
 
 
-def cmd_check(args: argparse.Namespace) -> None:
-    """Check a target directory for duplicates using the hash DB."""
-    db = HashDB(args.target)
-    dupes = db.find_duplicates()
-    db.close()
-
-    if not dupes:
-        logger.info("No duplicates found in target.")
-        return
-
-    logger.info(f"Found {len(dupes)} hash(es) with duplicate files:")
-    for d in dupes:
-        hash_str = str(d["hash"])
-        logger.info(f"  Hash {hash_str[:12]}... appears {d['count']} times")
-
-
 def cmd_hashdb(args: argparse.Namespace) -> None:
     """Rebuild the hash DB for a target directory."""
     logger.info(f"Rebuilding hash index for {args.target} ...")
@@ -218,7 +198,6 @@ def main() -> None:
     commands = {
         "dupes": cmd_dupes,
         "import": run_import,
-        "check": cmd_check,
         "hashdb": cmd_hashdb,
     }
 

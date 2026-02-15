@@ -814,8 +814,64 @@ class TestProgressLogging:
         assert "Processing photo/video 1/1" in caplog.text
         assert "(1 file)" in caplog.text
 
+    def test_photo_video_per_file_logging(self, tmp_path, caplog):
+        """Photo/video batch loop logs per-file '[i/N] filename'."""
+        source = tmp_path / "source"
+        source.mkdir(exist_ok=True)
+        (source / "a.jpg").write_bytes(b"\xff\xd8\xff\xd9aaa")
+        (source / "b.jpg").write_bytes(b"\xff\xd8\xff\xd9bbb")
+
+        args = self._make_args(tmp_path)
+
+        with patch("undisorder.importer.extract_batch") as mock_extract:
+            from undisorder.metadata import Metadata
+
+            import datetime
+            mock_extract.return_value = {
+                source / "a.jpg": Metadata(
+                    source_path=source / "a.jpg",
+                    date_taken=datetime.datetime(2024, 3, 15),
+                ),
+                source / "b.jpg": Metadata(
+                    source_path=source / "b.jpg",
+                    date_taken=datetime.datetime(2024, 3, 20),
+                ),
+            }
+            with caplog.at_level(logging.INFO, logger="undisorder"):
+                run_import(args)
+
+        assert "[1/2] a.jpg" in caplog.text
+        assert "[2/2] b.jpg" in caplog.text
+
+    def test_audio_per_file_logging(self, tmp_path, caplog):
+        """Audio batch loop logs per-file '[i/N] filename'."""
+        source = tmp_path / "source"
+        source.mkdir(exist_ok=True)
+        (source / "s1.mp3").write_bytes(b"\xff\xfb\x90\x00audio1xx")
+        (source / "s2.mp3").write_bytes(b"\xff\xfb\x90\x00audio2xx")
+
+        args = self._make_args(tmp_path)
+
+        audio_meta1 = AudioMetadata(
+            source_path=source / "s1.mp3",
+            artist="Artist", album="Album", title="Song1", track_number=1,
+        )
+        audio_meta2 = AudioMetadata(
+            source_path=source / "s2.mp3",
+            artist="Artist", album="Album", title="Song2", track_number=2,
+        )
+        with patch("undisorder.importer.extract_audio_batch", return_value={
+            source / "s1.mp3": audio_meta1,
+            source / "s2.mp3": audio_meta2,
+        }):
+            with caplog.at_level(logging.INFO, logger="undisorder"):
+                run_import(args)
+
+        assert "[1/2] s1.mp3" in caplog.text
+        assert "[2/2] s2.mp3" in caplog.text
+
     def test_acoustid_per_file_logging(self, tmp_path, caplog):
-        """Per-file AcoustID logs 'Identifying song.mp3 via AcoustID ...'."""
+        """Per-file AcoustID logs '[1/1] song.mp3 — AcoustID ...'."""
         source = tmp_path / "source"
         source.mkdir(exist_ok=True)
         (source / "song.mp3").write_bytes(b"\xff\xfb\x90\x00identifiable")
@@ -835,7 +891,8 @@ class TestProgressLogging:
             with caplog.at_level(logging.INFO, logger="undisorder"):
                 run_import(args)
 
-        assert "Identifying song.mp3 via AcoustID" in caplog.text
+        assert "[1/1] song.mp3" in caplog.text
+        assert "AcoustID" in caplog.text
 
 
 class TestDryRunGrouped:

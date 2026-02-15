@@ -1,7 +1,6 @@
 """Tests for undisorder.cli — CLI argument parsing and subcommands."""
 
 from undisorder.cli import build_parser
-from undisorder.cli import cmd_check
 from undisorder.cli import cmd_dupes
 from undisorder.cli import cmd_hashdb
 from unittest.mock import MagicMock
@@ -73,12 +72,6 @@ class TestBuildParser:
         assert args.exclude_dir == ["DAW*", ".ableton"]
         assert args.select is True
         assert args.update is True
-
-    def test_check_subcommand(self):
-        parser = build_parser()
-        args = parser.parse_args(["check", "/tmp/target"])
-        assert args.command == "check"
-        assert args.target == pathlib.Path("/tmp/target")
 
     def test_hashdb_subcommand(self):
         parser = build_parser()
@@ -254,48 +247,6 @@ class TestCmdDupes:
 
         assert a.exists(), "file should not be removed without --delete"
         assert b.exists(), "file should not be removed without --delete"
-
-
-class TestCmdCheck:
-    """Test the check subcommand."""
-
-    def test_check_finds_dupes_in_target(self, tmp_path: pathlib.Path, caplog):
-        target = tmp_path / "target"
-        target.mkdir()
-        content = b"same content in target"
-        (target / "a.jpg").write_bytes(content)
-        (target / "b.jpg").write_bytes(content)
-
-        # Build the hash DB first
-        from undisorder.hashdb import HashDB
-        db = HashDB(target)
-        db.rebuild(target)
-        db.close()
-
-        args = MagicMock()
-        args.target = target
-        with caplog.at_level(logging.INFO, logger="undisorder"):
-            cmd_check(args)
-
-        assert "duplicate" in caplog.text.lower()
-
-    def test_check_clean_target(self, tmp_path: pathlib.Path, caplog):
-        target = tmp_path / "target"
-        target.mkdir()
-        (target / "a.jpg").write_bytes(b"unique 1")
-        (target / "b.jpg").write_bytes(b"unique 2222")
-
-        from undisorder.hashdb import HashDB
-        db = HashDB(target)
-        db.rebuild(target)
-        db.close()
-
-        args = MagicMock()
-        args.target = target
-        with caplog.at_level(logging.INFO, logger="undisorder"):
-            cmd_check(args)
-
-        assert "No duplicates" in caplog.text
 
 
 class TestCmdHashdb:

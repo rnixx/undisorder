@@ -114,7 +114,8 @@ def _import_photo_video_batch(
     # (path, hash, is_video, old_hash, old_file_path) — old_* set for updates
     to_import: list[tuple[pathlib.Path, str, bool, str | None, str | None]] = []
 
-    for f in batch:
+    for i, f in enumerate(batch, 1):
+        logger.info(f"  [{i}/{len(batch)}] {f.name}")
         h = hash_file(f)
         is_video = classify(f) is FileType.VIDEO
         db = vid_db if is_video else img_db
@@ -203,7 +204,7 @@ def _import_photo_video_batch(
                     shutil.copy2(str(src_path), str(old_target))
 
                 if old_hash is not None:
-                    db.delete_by_hash_and_path(old_hash, old_file_path)
+                    db.delete_by_hash(old_hash)
                 date_str = meta.date_taken.strftime("%Y:%m:%d %H:%M:%S") if meta.date_taken else None
                 db.insert(
                     hash=file_hash,
@@ -392,20 +393,20 @@ def _import_audio_batch(
     # (path, hash, old_hash, old_file_path)
     to_import: list[tuple[pathlib.Path, str, str | None, str | None]] = []
 
-    for f in batch:
+    for i, f in enumerate(batch, 1):
         h = hash_file(f)
 
         # AcoustID identification (per-file, with cache)
         if acoustid_key and f in audio_meta_map:
             cached = aud_db.get_acoustid_cache(h)
-            if cached is not None:
-                logger.info(f"  Identifying {f.name} via AcoustID (cached)")
-            else:
-                logger.info(f"  Identifying {f.name} via AcoustID ...")
+            suffix = " \u2014 AcoustID (cached)" if cached else " \u2014 AcoustID ..."
+            logger.info(f"  [{i}/{len(batch)}] {f.name}{suffix}")
             audio_meta_map[f] = identify_audio(
                 f, audio_meta_map[f],
                 api_key=acoustid_key, file_hash=h, db=aud_db,
             )
+        else:
+            logger.info(f"  [{i}/{len(batch)}] {f.name}")
 
         if aud_db.hash_exists(h):
             skipped += 1
@@ -477,7 +478,7 @@ def _import_audio_batch(
                         shutil.copy2(str(src_path), str(old_target))
 
                     if old_hash is not None:
-                        aud_db.delete_by_hash_and_path(old_hash, old_file_path)
+                        aud_db.delete_by_hash(old_hash)
                     aud_db.insert(
                         hash=file_hash,
                         file_size=old_target.stat().st_size,

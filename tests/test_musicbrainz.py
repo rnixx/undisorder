@@ -15,12 +15,12 @@ class TestFingerprintAudio:
     """Test local audio fingerprinting."""
 
     def test_returns_duration_and_fingerprint(self):
-        with patch("undisorder.musicbrainz.acoustid.fingerprint", return_value=(240.5, "AQAA...")):
+        with patch("undisorder.musicbrainz.acoustid.fingerprint_file", return_value=(240.5, "AQAA...")):
             result = fingerprint_audio(pathlib.Path("/fake/song.mp3"))
         assert result == (240.5, "AQAA...")
 
     def test_returns_none_on_exception(self):
-        with patch("undisorder.musicbrainz.acoustid.fingerprint", side_effect=Exception("fpcalc not found")):
+        with patch("undisorder.musicbrainz.acoustid.fingerprint_file", side_effect=Exception("fpcalc not found")):
             result = fingerprint_audio(pathlib.Path("/fake/song.mp3"))
         assert result is None
 

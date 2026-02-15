@@ -12,23 +12,20 @@ import sqlite3
 
 _SCHEMA = """\
 CREATE TABLE IF NOT EXISTS files (
-    target_dir TEXT NOT NULL,
-    hash TEXT NOT NULL,
-    file_size INTEGER NOT NULL,
-    file_path TEXT NOT NULL,
-    date_taken TEXT,
+    hash        TEXT PRIMARY KEY,
+    target_dir  TEXT NOT NULL,
+    file_size   INTEGER NOT NULL,
+    file_path   TEXT NOT NULL,
+    date_taken  TEXT,
     import_date TEXT NOT NULL,
-    source_path TEXT,
-    PRIMARY KEY (target_dir, hash, file_path)
+    source_path TEXT
 );
-CREATE INDEX IF NOT EXISTS idx_hash ON files(target_dir, hash);
-CREATE INDEX IF NOT EXISTS idx_size ON files(target_dir, file_size);
+CREATE INDEX IF NOT EXISTS idx_target ON files(target_dir);
 CREATE TABLE IF NOT EXISTS imports (
-    target_dir TEXT NOT NULL,
-    source_path TEXT NOT NULL,
-    hash TEXT NOT NULL,
-    file_path TEXT,
-    PRIMARY KEY (target_dir, source_path)
+    source_path TEXT PRIMARY KEY,
+    target_dir  TEXT NOT NULL,
+    hash        TEXT NOT NULL,
+    file_path   TEXT
 );
 CREATE TABLE IF NOT EXISTS acoustid_cache (
     file_hash TEXT PRIMARY KEY,
@@ -88,27 +85,28 @@ class HashDB:
         if import_date is None:
             import_date = datetime.datetime.now().isoformat()
         self._conn.execute(
-            "INSERT INTO files (target_dir, hash, file_size, file_path, date_taken, import_date, source_path) "
+            "INSERT INTO files (hash, target_dir, file_size, file_path, date_taken, import_date, source_path) "
             "VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (self.target_dir, hash, file_size, file_path, date_taken, import_date, source_path),
+            (hash, self.target_dir, file_size, file_path, date_taken, import_date, source_path),
         )
         self._conn.commit()
 
     def hash_exists(self, hash: str) -> bool:
         """Check if a hash exists in the DB."""
         cursor = self._conn.execute(
-            "SELECT 1 FROM files WHERE target_dir = ? AND hash = ?",
-            (self.target_dir, hash),
+            "SELECT 1 FROM files WHERE hash = ?",
+            (hash,),
         )
         return cursor.fetchone() is not None
 
-    def get_by_hash(self, hash: str) -> list[dict[str, object]]:
-        """Get all records for a given hash."""
+    def get_by_hash(self, hash: str) -> dict[str, object] | None:
+        """Get the record for a given hash, or None."""
         cursor = self._conn.execute(
-            "SELECT * FROM files WHERE target_dir = ? AND hash = ?",
-            (self.target_dir, hash),
+            "SELECT * FROM files WHERE hash = ?",
+            (hash,),
         )
-        return [dict(row) for row in cursor.fetchall()]
+        row = cursor.fetchone()
+        return dict(row) if row else None
 
     def count(self) -> int:
         """Return the total number of records."""
@@ -118,44 +116,35 @@ class HashDB:
         )
         return cursor.fetchone()[0]
 
-    def find_duplicates(self) -> list[dict[str, object]]:
-        """Find hashes that appear at more than one path."""
-        cursor = self._conn.execute(
-            "SELECT hash, COUNT(*) as count FROM files "
-            "WHERE target_dir = ? GROUP BY hash HAVING count > 1",
-            (self.target_dir,),
-        )
-        return [dict(row) for row in cursor.fetchall()]
-
     def delete_by_path(self, file_path: str) -> None:
         """Delete a record by file path."""
         self._conn.execute(
-            "DELETE FROM files WHERE target_dir = ? AND file_path = ?",
-            (self.target_dir, file_path),
+            "DELETE FROM files WHERE file_path = ?",
+            (file_path,),
         )
         self._conn.commit()
 
-    def delete_by_hash_and_path(self, hash: str, file_path: str) -> None:
-        """Delete a specific files entry by hash and file_path."""
+    def delete_by_hash(self, hash: str) -> None:
+        """Delete a files entry by hash."""
         self._conn.execute(
-            "DELETE FROM files WHERE target_dir = ? AND hash = ? AND file_path = ?",
-            (self.target_dir, hash, file_path),
+            "DELETE FROM files WHERE hash = ?",
+            (hash,),
         )
         self._conn.commit()
 
     def source_path_imported(self, path: str) -> bool:
         """Check if a source path has been previously imported."""
         cursor = self._conn.execute(
-            "SELECT 1 FROM imports WHERE target_dir = ? AND source_path = ?",
-            (self.target_dir, path),
+            "SELECT 1 FROM imports WHERE source_path = ?",
+            (path,),
         )
         return cursor.fetchone() is not None
 
     def get_import(self, source_path: str) -> dict | None:
         """Get the full import record for a source path."""
         cursor = self._conn.execute(
-            "SELECT * FROM imports WHERE target_dir = ? AND source_path = ?",
-            (self.target_dir, source_path),
+            "SELECT * FROM imports WHERE source_path = ?",
+            (source_path,),
         )
         row = cursor.fetchone()
         return dict(row) if row else None
@@ -165,8 +154,8 @@ class HashDB:
     ) -> None:
         """Record a source path as imported (INSERT OR IGNORE)."""
         self._conn.execute(
-            "INSERT OR IGNORE INTO imports (target_dir, source_path, hash, file_path) VALUES (?, ?, ?, ?)",
-            (self.target_dir, source_path, hash, file_path),
+            "INSERT OR IGNORE INTO imports (source_path, target_dir, hash, file_path) VALUES (?, ?, ?, ?)",
+            (source_path, self.target_dir, hash, file_path),
         )
         self._conn.commit()
 
@@ -175,8 +164,8 @@ class HashDB:
     ) -> None:
         """Update an existing import record."""
         self._conn.execute(
-            "UPDATE imports SET hash = ?, file_path = ? WHERE target_dir = ? AND source_path = ?",
-            (hash, file_path, self.target_dir, source_path),
+            "UPDATE imports SET hash = ?, file_path = ? WHERE source_path = ?",
+            (hash, file_path, source_path),
         )
         self._conn.commit()
 
@@ -225,6 +214,10 @@ class HashDB:
         Clears all existing entries and re-hashes all files found.
         Returns the number of files indexed.
         """
+        import logging
+
+        logger = logging.getLogger(__name__)
+
         self._conn.execute(
             "DELETE FROM files WHERE target_dir = ?",
             (self.target_dir,),
@@ -241,6 +234,9 @@ class HashDB:
                 continue
 
             h = hash_file(path)
+            if self.hash_exists(h):
+                logger.warning("Skipping duplicate hash during rebuild: %s (%s)", h[:12], rel)
+                continue
             self.insert(
                 hash=h,
                 file_size=path.stat().st_size,
