@@ -30,6 +30,19 @@ CREATE TABLE IF NOT EXISTS imports (
     file_path TEXT,
     PRIMARY KEY (target_dir, source_path)
 );
+CREATE TABLE IF NOT EXISTS acoustid_cache (
+    file_hash TEXT PRIMARY KEY,
+    fingerprint TEXT,
+    duration REAL,
+    recording_id TEXT,
+    artist TEXT,
+    album TEXT,
+    title TEXT,
+    track_number INTEGER,
+    disc_number INTEGER,
+    year INTEGER,
+    lookup_date TEXT NOT NULL
+);
 """
 
 
@@ -164,6 +177,45 @@ class HashDB:
         self._conn.execute(
             "UPDATE imports SET hash = ?, file_path = ? WHERE target_dir = ? AND source_path = ?",
             (hash, file_path, self.target_dir, source_path),
+        )
+        self._conn.commit()
+
+    def get_acoustid_cache(self, file_hash: str) -> dict | None:
+        """Get cached AcoustID lookup result for a file hash."""
+        cursor = self._conn.execute(
+            "SELECT * FROM acoustid_cache WHERE file_hash = ?",
+            (file_hash,),
+        )
+        row = cursor.fetchone()
+        return dict(row) if row else None
+
+    def store_acoustid_cache(
+        self,
+        file_hash: str,
+        fingerprint: str | None,
+        duration: float | None,
+        recording_id: str | None,
+        metadata: dict,
+    ) -> None:
+        """Store an AcoustID lookup result in the cache."""
+        self._conn.execute(
+            "INSERT OR REPLACE INTO acoustid_cache "
+            "(file_hash, fingerprint, duration, recording_id, "
+            "artist, album, title, track_number, disc_number, year, lookup_date) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                file_hash,
+                fingerprint,
+                duration,
+                recording_id,
+                metadata.get("artist"),
+                metadata.get("album"),
+                metadata.get("title"),
+                metadata.get("track_number"),
+                metadata.get("disc_number"),
+                metadata.get("year"),
+                datetime.datetime.now().isoformat(),
+            ),
         )
         self._conn.commit()
 

@@ -336,7 +336,12 @@ def _import_photo_video(args: argparse.Namespace, result) -> int:
     if args.dry_run:
         logger.info("\n[DRY RUN] Importing photo/video file(s) ...\n")
 
-    for rel_dir, batch in _iter_batches(dir_groups, batch_size=100):
+    batches = _iter_batches(dir_groups, batch_size=100)
+    total_batches = len(batches)
+    for batch_idx, (rel_dir, batch) in enumerate(batches, 1):
+        n = len(batch)
+        label = "file" if n == 1 else "files"
+        logger.info(f"Processing photo/video {batch_idx}/{total_batches}: {rel_dir}/ ({n} {label})")
         try:
             imported, skipped = _import_photo_video_batch(
                 batch, args, geocoder, img_db, vid_db,
@@ -370,13 +375,16 @@ def _import_photo_video(args: argparse.Namespace, result) -> int:
 def _import_audio_batch(
     batch: list[pathlib.Path],
     args: argparse.Namespace,
-    audio_meta_map: dict[pathlib.Path, AudioMetadata],
     aud_db: HashDB,
+    *,
+    acoustid_key: str | None = None,
 ) -> tuple[int, int]:
-    """Process one batch of audio files: hash → dedup → import.
+    """Process one batch of audio files: metadata → hash → identify → dedup → import.
 
     Returns (imported, skipped).
     """
+    audio_meta_map = extract_audio_batch(batch)
+
     imported = 0
     skipped = 0
 
@@ -386,6 +394,18 @@ def _import_audio_batch(
 
     for f in batch:
         h = hash_file(f)
+
+        # AcoustID identification (per-file, with cache)
+        if acoustid_key and f in audio_meta_map:
+            cached = aud_db.get_acoustid_cache(h)
+            if cached is not None:
+                logger.info(f"  Identifying {f.name} via AcoustID (cached)")
+            else:
+                logger.info(f"  Identifying {f.name} via AcoustID ...")
+            audio_meta_map[f] = identify_audio(
+                f, audio_meta_map[f],
+                api_key=acoustid_key, file_hash=h, db=aud_db,
+            )
 
         if aud_db.hash_exists(h):
             skipped += 1
@@ -501,16 +521,7 @@ def _import_audio(args: argparse.Namespace, result) -> int:
 
     logger.info(f"\nFound {len(audio_files)} audio file(s)")
 
-    # Extract audio metadata for all files (cheap, no I/O beyond tag reading)
-    logger.info("Extracting audio tags ...")
-    audio_meta_map = extract_audio_batch(audio_files)
-
-    # Optionally identify via AcoustID
     acoustid_key = (args.acoustid_key or os.environ.get("ACOUSTID_API_KEY")) if args.identify else None
-    if args.identify and acoustid_key:
-        logger.info("Identifying audio via AcoustID ...")
-        for path, meta in audio_meta_map.items():
-            audio_meta_map[path] = identify_audio(path, meta, api_key=acoustid_key)
 
     if not args.dry_run:
         args.audio_target.mkdir(parents=True, exist_ok=True)
@@ -524,10 +535,15 @@ def _import_audio(args: argparse.Namespace, result) -> int:
     if args.dry_run:
         logger.info("\n[DRY RUN] Importing audio file(s) ...\n")
 
-    for rel_dir, batch in _iter_batches(dir_groups, batch_size=10):
+    batches = _iter_batches(dir_groups, batch_size=10)
+    total_batches = len(batches)
+    for batch_idx, (rel_dir, batch) in enumerate(batches, 1):
+        n = len(batch)
+        label = "file" if n == 1 else "files"
+        logger.info(f"Processing audio {batch_idx}/{total_batches}: {rel_dir}/ ({n} {label})")
         try:
             imported, skipped = _import_audio_batch(
-                batch, args, audio_meta_map, aud_db,
+                batch, args, aud_db, acoustid_key=acoustid_key,
             )
             total_imported += imported
             total_skipped += skipped

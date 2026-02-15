@@ -631,6 +631,212 @@ class TestImportAudio:
         assert "1 duplicate group" in caplog.text
         assert "audio" in caplog.text.lower()
 
+    def test_identify_calls_per_batch(self, tmp_path: pathlib.Path, caplog):
+        """With --identify, AcoustID is called per file inside batch processing."""
+        source = tmp_path / "source"
+        source.mkdir()
+        (source / "song.mp3").write_bytes(b"\xff\xfb\x90\x00identifiable")
+
+        args = self._make_args(tmp_path, identify=True, acoustid_key="test-key")
+
+        audio_meta = AudioMetadata(
+            source_path=source / "song.mp3",
+            artist=None,
+            album=None,
+            title=None,
+        )
+        identified_meta = AudioMetadata(
+            source_path=source / "song.mp3",
+            artist="Identified Artist",
+            album="Identified Album",
+            title="Identified Title",
+            track_number=1,
+        )
+        with (
+            patch("undisorder.importer.extract_audio_batch", return_value={
+                source / "song.mp3": audio_meta,
+            }),
+            patch("undisorder.importer.identify_audio", return_value=identified_meta) as mock_identify,
+        ):
+            with caplog.at_level(logging.INFO, logger="undisorder"):
+                run_import(args)
+
+        # identify_audio should have been called with db and file_hash
+        mock_identify.assert_called_once()
+        call_kwargs = mock_identify.call_args
+        assert call_kwargs.kwargs.get("api_key") == "test-key"
+        assert call_kwargs.kwargs.get("file_hash") is not None
+        assert call_kwargs.kwargs.get("db") is not None
+
+    def test_identify_uses_cache(self, tmp_path: pathlib.Path, caplog):
+        """With --identify and a cached entry, no API calls are made."""
+        source = tmp_path / "source"
+        source.mkdir()
+        (source / "song.mp3").write_bytes(b"\xff\xfb\x90\x00cached audio")
+
+        args = self._make_args(tmp_path, identify=True, acoustid_key="test-key")
+
+        # Pre-populate cache
+        from undisorder.hashdb import HashDB
+        from undisorder.hasher import hash_file
+        aud_db = HashDB(tmp_path / "musik")
+        h = hash_file(source / "song.mp3")
+        aud_db.store_acoustid_cache(
+            file_hash=h,
+            fingerprint="FP...",
+            duration=180.0,
+            recording_id="rec-cached",
+            metadata={"artist": "Cached Artist", "album": "Cached Album", "title": "Cached Title"},
+        )
+        aud_db.close()
+
+        audio_meta = AudioMetadata(
+            source_path=source / "song.mp3",
+            artist=None,
+            album=None,
+            title=None,
+        )
+        with (
+            patch("undisorder.importer.extract_audio_batch", return_value={
+                source / "song.mp3": audio_meta,
+            }),
+            patch("undisorder.importer.identify_audio", wraps=__import__("undisorder.musicbrainz", fromlist=["identify_audio"]).identify_audio),
+            patch("undisorder.musicbrainz.fingerprint_audio") as mock_fp,
+        ):
+            with caplog.at_level(logging.INFO, logger="undisorder"):
+                run_import(args)
+
+        # fingerprint should NOT have been called (cache hit)
+        mock_fp.assert_not_called()
+        assert "cached" in caplog.text.lower()
+
+
+class TestProgressLogging:
+    """Test progress logging in batch loops."""
+
+    def _make_args(self, tmp_path, **overrides):
+        source = tmp_path / "source"
+        source.mkdir(exist_ok=True)
+        args = MagicMock()
+        args.source = source
+        args.images_target = tmp_path / "photos"
+        args.video_target = tmp_path / "videos"
+        args.audio_target = tmp_path / "musik"
+        args.dry_run = False
+        args.move = False
+        args.geocoding = "off"
+        args.interactive = False
+        args.identify = False
+        args.acoustid_key = None
+        args.exclude = []
+        args.exclude_dir = []
+        args.select = False
+        args.update = False
+        for k, v in overrides.items():
+            setattr(args, k, v)
+        (tmp_path / "photos").mkdir(exist_ok=True)
+        (tmp_path / "videos").mkdir(exist_ok=True)
+        (tmp_path / "musik").mkdir(exist_ok=True)
+        return args
+
+    def test_audio_progress_logging(self, tmp_path, caplog):
+        """Audio batch loop logs 'Processing audio 1/N: dir/ (M file(s))'."""
+        source = tmp_path / "source"
+        source.mkdir(exist_ok=True)
+        (source / "song.mp3").write_bytes(b"\xff\xfb\x90\x00audio1xx")
+
+        args = self._make_args(tmp_path)
+
+        audio_meta = AudioMetadata(
+            source_path=source / "song.mp3",
+            artist="Artist", album="Album", title="Song", track_number=1,
+        )
+        with patch("undisorder.importer.extract_audio_batch", return_value={
+            source / "song.mp3": audio_meta,
+        }):
+            with caplog.at_level(logging.INFO, logger="undisorder"):
+                run_import(args)
+
+        assert "Processing audio 1/1" in caplog.text
+        assert "(1 file)" in caplog.text
+
+    def test_audio_progress_multiple_batches(self, tmp_path, caplog):
+        """Multiple audio batches log incrementing progress."""
+        source = tmp_path / "source"
+        dir_a = source / "aaa"
+        dir_b = source / "bbb"
+        dir_a.mkdir(parents=True)
+        dir_b.mkdir(parents=True)
+        (dir_a / "s1.mp3").write_bytes(b"\xff\xfb\x90\x00audio1xx")
+        (dir_b / "s2.mp3").write_bytes(b"\xff\xfb\x90\x00audio2xx")
+
+        args = self._make_args(tmp_path)
+
+        audio_meta1 = AudioMetadata(
+            source_path=dir_a / "s1.mp3",
+            artist="Artist", album="Album1", title="Song1", track_number=1,
+        )
+        audio_meta2 = AudioMetadata(
+            source_path=dir_b / "s2.mp3",
+            artist="Artist", album="Album2", title="Song2", track_number=1,
+        )
+        with patch("undisorder.importer.extract_audio_batch", return_value={
+            dir_a / "s1.mp3": audio_meta1,
+            dir_b / "s2.mp3": audio_meta2,
+        }):
+            with caplog.at_level(logging.INFO, logger="undisorder"):
+                run_import(args)
+
+        assert "Processing audio 1/2" in caplog.text
+        assert "Processing audio 2/2" in caplog.text
+
+    def test_photo_video_progress_logging(self, tmp_path, caplog):
+        """Photo/video batch loop logs 'Processing photo/video 1/N'."""
+        source = tmp_path / "source"
+        source.mkdir(exist_ok=True)
+        (source / "photo.jpg").write_bytes(b"\xff\xd8\xff\xd9image")
+
+        args = self._make_args(tmp_path)
+
+        with patch("undisorder.importer.extract_batch") as mock_extract:
+            from undisorder.metadata import Metadata
+
+            import datetime
+            mock_extract.return_value = {
+                source / "photo.jpg": Metadata(
+                    source_path=source / "photo.jpg",
+                    date_taken=datetime.datetime(2024, 3, 15),
+                )
+            }
+            with caplog.at_level(logging.INFO, logger="undisorder"):
+                run_import(args)
+
+        assert "Processing photo/video 1/1" in caplog.text
+        assert "(1 file)" in caplog.text
+
+    def test_acoustid_per_file_logging(self, tmp_path, caplog):
+        """Per-file AcoustID logs 'Identifying song.mp3 via AcoustID ...'."""
+        source = tmp_path / "source"
+        source.mkdir(exist_ok=True)
+        (source / "song.mp3").write_bytes(b"\xff\xfb\x90\x00identifiable")
+
+        args = self._make_args(tmp_path, identify=True, acoustid_key="test-key")
+
+        audio_meta = AudioMetadata(
+            source_path=source / "song.mp3",
+            artist=None,
+        )
+        with (
+            patch("undisorder.importer.extract_audio_batch", return_value={
+                source / "song.mp3": audio_meta,
+            }),
+            patch("undisorder.importer.identify_audio", return_value=audio_meta),
+        ):
+            with caplog.at_level(logging.INFO, logger="undisorder"):
+                run_import(args)
+
+        assert "Identifying song.mp3 via AcoustID" in caplog.text
+
 
 class TestDryRunGrouped:
     """Test that dry-run output is grouped by target directory."""

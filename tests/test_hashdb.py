@@ -223,3 +223,106 @@ class TestHashDBImports:
         db_a.record_import("/media/sd/photo.jpg", "h1", "2024/photo.jpg")
         assert db_a.source_path_imported("/media/sd/photo.jpg") is True
         assert db_b.source_path_imported("/media/sd/photo.jpg") is False
+
+
+class TestAcoustidCache:
+    """Test the acoustid_cache table for caching AcoustID lookups."""
+
+    def test_store_and_get(self, db: HashDB):
+        """Store a cache entry and retrieve it."""
+        db.store_acoustid_cache(
+            file_hash="abc123",
+            fingerprint="AQAA...",
+            duration=240.5,
+            recording_id="rec-001",
+            metadata={
+                "artist": "The Beatles",
+                "album": "Abbey Road",
+                "title": "Come Together",
+                "track_number": 1,
+                "disc_number": 1,
+                "year": 1969,
+            },
+        )
+        cached = db.get_acoustid_cache("abc123")
+        assert cached is not None
+        assert cached["fingerprint"] == "AQAA..."
+        assert cached["duration"] == 240.5
+        assert cached["recording_id"] == "rec-001"
+        assert cached["artist"] == "The Beatles"
+        assert cached["album"] == "Abbey Road"
+        assert cached["title"] == "Come Together"
+        assert cached["track_number"] == 1
+        assert cached["disc_number"] == 1
+        assert cached["year"] == 1969
+        assert cached["lookup_date"] is not None
+
+    def test_get_missing_returns_none(self, db: HashDB):
+        """Getting a non-existent cache entry returns None."""
+        assert db.get_acoustid_cache("nonexistent") is None
+
+    def test_store_minimal_metadata(self, db: HashDB):
+        """Store with only some metadata fields set."""
+        db.store_acoustid_cache(
+            file_hash="minimal",
+            fingerprint="FP...",
+            duration=180.0,
+            recording_id=None,
+            metadata={},
+        )
+        cached = db.get_acoustid_cache("minimal")
+        assert cached is not None
+        assert cached["recording_id"] is None
+        assert cached["artist"] is None
+        assert cached["album"] is None
+
+    def test_cache_overwrites_on_duplicate(self, db: HashDB):
+        """Storing the same file_hash again overwrites the old entry."""
+        db.store_acoustid_cache(
+            file_hash="dup",
+            fingerprint="FP1",
+            duration=100.0,
+            recording_id="rec-old",
+            metadata={"artist": "Old"},
+        )
+        db.store_acoustid_cache(
+            file_hash="dup",
+            fingerprint="FP2",
+            duration=200.0,
+            recording_id="rec-new",
+            metadata={"artist": "New"},
+        )
+        cached = db.get_acoustid_cache("dup")
+        assert cached["fingerprint"] == "FP2"
+        assert cached["artist"] == "New"
+
+    def test_cache_not_scoped_to_target_dir(self, tmp_path: pathlib.Path):
+        """acoustid_cache is global — same hash visible from any target_dir."""
+        db_path = tmp_path / "test.db"
+        target_a = tmp_path / "a"
+        target_a.mkdir()
+        target_b = tmp_path / "b"
+        target_b.mkdir()
+
+        db_a = HashDB(target_a, db_path=db_path)
+        db_b = HashDB(target_b, db_path=db_path)
+
+        db_a.store_acoustid_cache(
+            file_hash="shared",
+            fingerprint="FP",
+            duration=120.0,
+            recording_id="rec-shared",
+            metadata={"artist": "Shared Artist"},
+        )
+        cached = db_b.get_acoustid_cache("shared")
+        assert cached is not None
+        assert cached["artist"] == "Shared Artist"
+
+    def test_acoustid_cache_table_exists(self, db: HashDB):
+        """The acoustid_cache table should exist after init."""
+        conn = sqlite3.connect(db.db_path)
+        cursor = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='acoustid_cache'"
+        )
+        assert cursor.fetchone() is not None
+        conn.close()
