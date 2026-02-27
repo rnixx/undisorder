@@ -43,29 +43,45 @@ class TestHashDBInsert:
 
     def test_insert_and_lookup(self, db: HashDB):
         db.insert(
-            hash="abc123",
-            file_size=1024,
+            original_hash="abc123",
             file_path="2024/2024-03/photo.jpg",
-            date_taken="2024:03:15 14:30:00",
-            source_path="/media/sd/DCIM/photo.jpg",
         )
         assert db.hash_exists("abc123")
+
+    def test_insert_with_current_hash(self, db: HashDB):
+        db.insert(
+            original_hash="abc123",
+            file_path="2024/photo.jpg",
+            current_hash="def456",
+        )
+        row = db.get_by_hash("abc123")
+        assert row is not None
+        assert row["current_hash"] == "def456"
+
+    def test_insert_defaults_current_hash_to_original(self, db: HashDB):
+        db.insert(
+            original_hash="abc123",
+            file_path="2024/photo.jpg",
+        )
+        row = db.get_by_hash("abc123")
+        assert row is not None
+        assert row["current_hash"] == "abc123"
 
     def test_lookup_missing_hash(self, db: HashDB):
         assert db.hash_exists("nonexistent") is False
 
     def test_insert_duplicate_hash_raises(self, db: HashDB):
-        """Inserting the same hash twice should raise (PRIMARY KEY violation)."""
-        db.insert(hash="abc", file_size=100, file_path="a/photo.jpg")
+        """Inserting the same original_hash twice should raise (PRIMARY KEY violation)."""
+        db.insert(original_hash="abc", file_path="a/photo.jpg")
         with pytest.raises(sqlite3.IntegrityError):
-            db.insert(hash="abc", file_size=100, file_path="b/photo.jpg")
+            db.insert(original_hash="abc", file_path="b/photo.jpg")
 
 
 class TestHashDBQuery:
     """Test querying records."""
 
     def test_get_by_hash(self, db: HashDB):
-        db.insert(hash="h1", file_size=100, file_path="a.jpg")
+        db.insert(original_hash="h1", file_path="a.jpg")
         row = db.get_by_hash("h1")
         assert row is not None
         assert row["file_path"] == "a.jpg"
@@ -75,8 +91,8 @@ class TestHashDBQuery:
 
     def test_count(self, db: HashDB):
         assert db.count() == 0
-        db.insert(hash="h1", file_size=100, file_path="a.jpg")
-        db.insert(hash="h2", file_size=200, file_path="b.jpg")
+        db.insert(original_hash="h1", file_path="a.jpg")
+        db.insert(original_hash="h2", file_path="b.jpg")
         assert db.count() == 2
 
 
@@ -85,9 +101,27 @@ class TestHashDBDelete:
     """Test deleting records."""
 
     def test_delete_by_path(self, db: HashDB):
-        db.insert(hash="h1", file_size=100, file_path="a.jpg")
+        db.insert(original_hash="h1", file_path="a.jpg")
         db.delete_by_path("a.jpg")
         assert db.count() == 0
+
+    def test_delete_by_path_scoped_to_target_dir(self, tmp_path: pathlib.Path):
+        """delete_by_path should only delete records for this target_dir."""
+        db_path = tmp_path / "test.db"
+        target_a = tmp_path / "a"
+        target_a.mkdir()
+        target_b = tmp_path / "b"
+        target_b.mkdir()
+
+        db_a = HashDB(target_a, db_path=db_path)
+        db_b = HashDB(target_b, db_path=db_path)
+
+        db_a.insert(original_hash="h1", file_path="photo.jpg")
+        db_b.insert(original_hash="h2", file_path="photo.jpg")
+
+        db_a.delete_by_path("photo.jpg")
+        assert db_a.count() == 0
+        assert db_b.count() == 1
 
     def test_delete_nonexistent_is_noop(self, db: HashDB):
         db.delete_by_path("nope.jpg")  # should not raise
@@ -96,8 +130,8 @@ class TestHashDBDelete:
 class TestHashDBRebuild:
     """Test rebuilding the hash DB from the filesystem."""
 
-    def test_rebuild_adds_files(self, tmp_path: pathlib.Path, tmp_target: pathlib.Path):
-        # Create some files in the target
+    def test_rebuild_adds_new_files(self, tmp_path: pathlib.Path, tmp_target: pathlib.Path):
+        """New files on disk get inserted with original_hash = current_hash."""
         sub = tmp_target / "2024" / "2024-03"
         sub.mkdir(parents=True)
         (sub / "photo.jpg").write_bytes(b"\xff\xd8\xff\xd9")
@@ -106,68 +140,51 @@ class TestHashDBRebuild:
         assert count == 1
         assert db.count() == 1
 
-    def test_rebuild_clears_old_entries(self, tmp_path: pathlib.Path, tmp_target: pathlib.Path):
+    def test_rebuild_updates_current_hash_for_known_files(self, tmp_path: pathlib.Path, tmp_target: pathlib.Path):
+        """Known file_path gets current_hash updated."""
+        from undisorder.hasher import hash_file
+
+        photo = tmp_target / "photo.jpg"
+        photo.write_bytes(b"\xff\xd8\xff\xd9original")
+
         db = HashDB(tmp_target, db_path=tmp_path / "test.db")
-        db.insert(hash="old", file_size=1, file_path="gone.jpg")
+        original_h = hash_file(photo)
+        db.insert(original_hash=original_h, file_path="photo.jpg")
+
+        # Modify the file (simulates external edit)
+        photo.write_bytes(b"\xff\xd8\xff\xd9modified content")
+        new_h = hash_file(photo)
+
+        count = db.rebuild(tmp_target)
+        assert count == 1
+
+        row = db.get_by_hash(original_h)
+        assert row is not None
+        assert row["current_hash"] == new_h
+
+    def test_rebuild_deletes_missing_files(self, tmp_path: pathlib.Path, tmp_target: pathlib.Path):
+        """DB records with no corresponding file on disk get deleted."""
+        db = HashDB(tmp_target, db_path=tmp_path / "test.db")
+        db.insert(original_hash="old", file_path="gone.jpg")
         db.rebuild(tmp_target)
-        # gone.jpg doesn't exist, so it should be cleared
         assert db.hash_exists("old") is False
 
+    def test_rebuild_inserts_unknown_files(self, tmp_path: pathlib.Path, tmp_target: pathlib.Path):
+        """Files on disk not in DB get inserted with original_hash = current_hash."""
+        from undisorder.hasher import hash_file
 
-class TestHashDBImports:
-    """Test the imports table for source-path-based re-import protection."""
+        photo = tmp_target / "new_photo.jpg"
+        photo.write_bytes(b"\xff\xd8\xff\xd9brand new")
 
-    def test_record_and_check_import(self, db: HashDB):
-        db.record_import("/media/sd/DCIM/photo.jpg", "abc123", "2024/photo.jpg")
-        assert db.source_path_imported("/media/sd/DCIM/photo.jpg") is True
-
-    def test_source_path_not_imported(self, db: HashDB):
-        assert db.source_path_imported("/unknown/path.jpg") is False
-
-    def test_record_import_idempotent(self, db: HashDB):
-        db.record_import("/media/sd/photo.jpg", "hash1", "2024/photo.jpg")
-        # Second insert with same source_path should be ignored (INSERT OR IGNORE)
-        db.record_import("/media/sd/photo.jpg", "hash2", "2025/photo.jpg")
-        imp = db.get_import("/media/sd/photo.jpg")
-        assert imp is not None
-        # Original values should be preserved
-        assert imp["hash"] == "hash1"
-        assert imp["file_path"] == "2024/photo.jpg"
-
-    def test_get_import(self, db: HashDB):
-        db.record_import("/media/sd/photo.jpg", "abc123", "2024/photo.jpg")
-        imp = db.get_import("/media/sd/photo.jpg")
-        assert imp is not None
-        assert imp["source_path"] == "/media/sd/photo.jpg"
-        assert imp["hash"] == "abc123"
-        assert imp["file_path"] == "2024/photo.jpg"
-
-    def test_get_import_missing(self, db: HashDB):
-        assert db.get_import("/unknown/path.jpg") is None
-
-    def test_update_import(self, db: HashDB):
-        db.record_import("/media/sd/photo.jpg", "hash1", "2024/photo.jpg")
-        db.update_import("/media/sd/photo.jpg", "hash2", "2025/photo.jpg")
-        imp = db.get_import("/media/sd/photo.jpg")
-        assert imp is not None
-        assert imp["hash"] == "hash2"
-        assert imp["file_path"] == "2025/photo.jpg"
-
-    def test_delete_by_hash(self, db: HashDB):
-        db.insert(hash="h1", file_size=100, file_path="a.jpg")
-        db.delete_by_hash("h1")
-        assert db.get_by_hash("h1") is None
-
-    def test_rebuild_preserves_imports(self, tmp_path: pathlib.Path, tmp_target: pathlib.Path):
         db = HashDB(tmp_target, db_path=tmp_path / "test.db")
-        db.record_import("/media/sd/photo.jpg", "abc123", "2024/photo.jpg")
-        db.insert(hash="old", file_size=1, file_path="gone.jpg")
-        db.rebuild(tmp_target)
-        # files table should be cleared
-        assert db.hash_exists("old") is False
-        # imports table should be preserved
-        assert db.source_path_imported("/media/sd/photo.jpg") is True
+        count = db.rebuild(tmp_target)
+        assert count == 1
 
+        h = hash_file(photo)
+        row = db.get_by_hash(h)
+        assert row is not None
+        assert row["original_hash"] == h
+        assert row["current_hash"] == h
 
 
 class TestAcoustidCache:

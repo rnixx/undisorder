@@ -36,7 +36,6 @@ class TestBuildParser:
         assert args.exclude is None
         assert args.exclude_dir is None
         assert args.select is None
-        assert args.update is None
 
     def test_import_subcommand_all_flags(self):
         parser = build_parser()
@@ -55,7 +54,6 @@ class TestBuildParser:
             "--exclude-dir", "DAW*",
             "--exclude-dir", ".ableton",
             "--select",
-            "--update",
         ])
         assert args.images_target == pathlib.Path("/custom/photos")
         assert args.video_target == pathlib.Path("/custom/videos")
@@ -68,7 +66,6 @@ class TestBuildParser:
         assert args.exclude == ["*.wav", "*.aiff"]
         assert args.exclude_dir == ["DAW*", ".ableton"]
         assert args.select is True
-        assert args.update is True
 
     def test_hashdb_subcommand(self):
         parser = build_parser()

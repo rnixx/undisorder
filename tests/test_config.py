@@ -32,7 +32,6 @@ class TestLoadConfig:
             'audio_target = "/aud"',
             "dry_run = true",
             "move = true",
-            "update = true",
             "interactive = true",
             "identify = true",
             "select = true",
@@ -42,7 +41,7 @@ class TestLoadConfig:
         ])
         (tmp_path / CONFIG_FILENAME).write_text(toml)
         cfg = load_config(tmp_path)
-        assert len(cfg) == 12
+        assert len(cfg) == 11
 
     def test_ignores_unknown_keys(self, tmp_path):
         (tmp_path / CONFIG_FILENAME).write_text('unknown_key = "value"\n')
@@ -80,7 +79,7 @@ class TestMergeConfigIntoArgs:
         defaults = dict(
             images_target=None, video_target=None, audio_target=None,
             dry_run=None, move=None,
-            interactive=None, identify=None, select=None, update=None,
+            interactive=None, identify=None, select=None,
             exclude=None, exclude_dir=None, acoustid_key=None,
         )
         defaults.update(kwargs)
@@ -117,7 +116,6 @@ class TestMergeConfigIntoArgs:
         assert args.interactive is False
         assert args.identify is False
         assert args.select is False
-        assert args.update is False
         assert args.exclude == []
         assert args.exclude_dir == []
         assert args.acoustid_key is None

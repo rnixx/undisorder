@@ -92,11 +92,6 @@ def build_parser() -> argparse.ArgumentParser:
         "--select", action="store_true", default=None,
         help="Interactively select which directories to import",
     )
-    p_import.add_argument(
-        "--update", action="store_true", default=None,
-        help="Re-import files when source is newer than previous import",
-    )
-
     # --- hashdb ---
     p_hashdb = sub.add_parser("hashdb", help="Rebuild hash index for target")
     p_hashdb.add_argument("target", type=pathlib.Path, help="Target directory to index")
