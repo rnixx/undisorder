@@ -1,28 +1,42 @@
 # undisorder
 
-Photo/Video/Audio organization tool — deduplicates, sorts by date/topic/artist, and imports into a clean directory structure. Designed for bulk imports of scattered media collections, with ongoing ingestion support.
+Media organizer for photos, videos, and audio. Deduplicates via SHA256,
+sorts by EXIF date and embedded audio tags, identifies unknown audio via
+AcoustID/MusicBrainz, and imports into a clean directory structure.
 
 ## Features
 
-- **Smart deduplication**: `dupes --delete` removes cross-directory duplicates before import (file size grouping + SHA256); import skips files already in target via hash index
-- **Per-directory batch processing**: Processes one source directory at a time (deepest first) — low memory, resilient to errors, natural progress feedback
-- **Intelligent directory naming**: Uses EXIF dates and meaningful source folder names to create folder structures like `2024/2024-03_Urlaub/`
-- **Photo + Video support**: Handles all common formats (JPEG, PNG, HEIC, RAW, MP4, MOV, MKV, ...)
-- **Audio support**: Organizes by Artist/Album using embedded tags (ID3, Vorbis, MP4 atoms) via mutagen
-- **Audio identification**: AcoustID fingerprinting + MusicBrainz lookup — overwrites existing tags with lookup data and writes improved tags into the target file
-- **SQLite hash index**: Tracks `original_hash` (from source at import time) and `current_hash` (updated on rebuild) to handle dedup even after external metadata edits
-- **Exclude patterns**: Filter out files or directories by glob pattern (e.g. DAW project folders, WAV samples)
-- **Interactive selection**: Review and accept/skip directories before importing
-- **Dry-run mode**: Preview what would happen before committing
-- **Copy or move**: Default is copy; use `--move` to relocate files
+- **Deduplication** -- two-phase detection (file size grouping + SHA256
+  hashing) finds byte-identical duplicates across directories. Import skips
+  files already in the target via a central hash index.
+- **Photo/video organization** -- extracts EXIF dates, creates
+  `YYYY/YYYY-MM_Topic/` directory structures using meaningful source folder
+  names. Supports JPEG, PNG, HEIC, RAW (CR2, CR3, NEF, ARW, DNG, ...),
+  MP4, MOV, MKV, and more.
+- **Audio organization** -- reads embedded tags (ID3, Vorbis, MP4 atoms) via
+  mutagen, organizes into `Artist/Album/NN_Title.ext`.
+- **Audio identification** -- AcoustID fingerprinting + MusicBrainz lookup
+  overwrites missing/inaccurate tags and writes improved metadata into
+  target files.
+- **SQLite hash index** -- tracks `original_hash` and `current_hash` per
+  file. Dedup works even after external metadata edits. Incremental rebuild
+  via `hashdb` command.
+- **Exclude patterns** -- glob-based file and directory filtering
+  (case-insensitive).
+- **Interactive selection** -- review and accept/skip source directories
+  before import.
+- **Batch processing** -- processes one source directory at a time (deepest
+  first), 100 files per batch (photos/videos), 10 per batch (audio). One
+  failed batch does not stop the rest.
+- **Dry-run mode** -- preview all actions without executing.
+- **Copy or move** -- default is copy. With `--move`, files are copied first,
+  then source is deleted (safe for `--identify` workflows).
 
-## Installation
+## Quickstart
 
 ### Prerequisites
 
-- Python 3.11+
-- `exiftool` (system package)
-- `chromaprint` (system package, for AcoustID audio fingerprinting)
+Python 3.11+, exiftool, chromaprint:
 
 ```bash
 # Ubuntu/Debian
@@ -35,7 +49,7 @@ sudo pacman -S perl-image-exiftool chromaprint
 brew install exiftool chromaprint
 ```
 
-### Install undisorder
+### Install
 
 ```bash
 git clone https://github.com/rnixx/undisorder.git
@@ -45,127 +59,92 @@ source venv/bin/activate
 pip install -e .
 ```
 
-## Usage
-
-### TL;DR — typical workflow
+### Typical workflow
 
 ```bash
-# 1. Remove cross-directory duplicates in source (keeps oldest by mtime)
+# 1. Remove duplicates in source (keeps oldest by mtime)
 undisorder dupes /mnt/backup --delete
 
-# 2. Pick source folders interactively, preview what would happen
+# 2. Preview import
 undisorder import /mnt/backup --select --dry-run
 
-# 3. Happy with the plan? Import for real, with all the bells and whistles
+# 3. Import for real
 undisorder import /mnt/backup \
     --select \
     --identify \
     --exclude '*.wav' --exclude-dir 'DAW*'
 ```
 
-### Find and remove duplicates in a directory
+## Commands
 
-```bash
-# Show duplicate groups (no changes)
-undisorder dupes /path/to/unsorted-media
+### `undisorder dupes <source> [--delete]`
 
-# Remove duplicates, keeping the oldest by modification time
-undisorder dupes /path/to/unsorted-media --delete
-```
+Find byte-identical duplicates in `<source>`. Groups files by size, then
+hashes same-size files with SHA256. With `--delete`, keeps the oldest copy
+(by mtime) and deletes the rest.
 
-Shows duplicate groups with file paths and sizes. Scans photos, videos, and audio files. With `--delete`, removes newer copies and keeps the file with the oldest modification time from each duplicate group. Run this before `import` to clean up cross-directory duplicates in your source.
+Does not detect acoustic duplicates (same song, different encoding).
 
-### Import files into your collection
+### `undisorder import <source> [OPTIONS]`
 
-```bash
-# Simple import — photos, videos, and audio to default locations
-undisorder import /path/to/unsorted-media
+Import photos, videos, and audio from `<source>` into organized target
+directories.
 
-# Preview first (dry run)
-undisorder import /path/to/unsorted-media --dry-run
+### `undisorder hashdb <target>`
 
-# Custom targets
-undisorder import /path/to/unsorted-media \
-    --images-target ~/Bilder/Fotos \
-    --video-target ~/Videos \
-    --audio-target ~/Musik
+Incremental rebuild of the hash index for `<target>`. Updates hashes for
+known files, adds new files, removes records for deleted files. Run this
+after editing metadata on imported files.
 
-# Move files instead of copying
-undisorder import /path/to/unsorted-media --move
+### `undisorder --configure`
 
-# Full workflow: select folders, identify audio
-undisorder import /path/to/unsorted-media \
-    --select \
-    --identify
-```
+Interactive configuration wizard. Creates or updates
+`~/.config/undisorder/config.toml`.
 
-### Filter what gets imported
+## Options
 
-When importing from deep backup folders, not everything should be imported — e.g. WAV samples inside DAW project folders are not music.
+### Global
 
-```bash
-# Exclude WAV files and DAW project directories
-undisorder import /mnt/backup \
-    --exclude '*.wav' \
-    --exclude-dir 'DAW*' --exclude-dir '.ableton'
+| Option | Description |
+|---|---|
+| `--verbose`, `-v` | Debug output |
+| `--quiet`, `-q` | Suppress informational output, show warnings/errors only |
+| `--configure` | Interactive configuration setup |
 
-# Interactively review each directory before importing
-undisorder import /mnt/backup --select
+### `import`
 
-# Combine: exclude by pattern, then pick from what remains
-undisorder import /mnt/backup \
-    --exclude '*.wav' --exclude-dir 'DAW*' \
-    --select
-```
+| Option | Default | Description |
+|---|---|---|
+| `--dry-run` | off | Preview changes without executing |
+| `--move` | off | Move files instead of copying |
+| `--images-target PATH` | `~/Bilder/Fotos` | Target directory for photos |
+| `--video-target PATH` | `~/Videos` | Target directory for videos |
+| `--audio-target PATH` | `~/Musik` | Target directory for audio |
+| `--identify` / `--no-identify` | off | Enable AcoustID + MusicBrainz audio identification |
+| `--acoustid-key KEY` | -- | AcoustID API key (overrides env and config) |
+| `--exclude PATTERN` | -- | Exclude files matching glob pattern (repeatable) |
+| `--exclude-dir PATTERN` | -- | Exclude directories matching glob pattern (repeatable) |
+| `--select` | off | Interactive directory selection before import |
 
-Patterns are case-insensitive and use glob syntax. `--exclude` matches filenames, `--exclude-dir` matches any directory component in the path.
+### `dupes`
 
-### Import audio with AcoustID identification
+| Option | Description |
+|---|---|
+| `--delete` | Delete newer duplicates, keep oldest by mtime |
 
-For audio files with missing or inaccurate tags, use AcoustID to identify them. Lookup data from MusicBrainz **overwrites** existing tags (falling back to existing data only when a lookup field is empty). The improved tags are written into the target file after copy/move:
+### AcoustID API key
 
-```bash
-undisorder import /path/to/music --identify
-```
+Resolved in order:
 
-When combining `--move` with `--identify`, undisorder always copies first, writes the improved tags into the target file, and then deletes the source. This ensures the source file is preserved until tags are safely written — a direct move would risk data loss if the tag write fails.
-
-The AcoustID API key is resolved in this order:
-1. `--acoustid-key=YOUR_KEY` CLI flag
+1. `--acoustid-key` CLI flag
 2. `ACOUSTID_API_KEY` environment variable
-3. `acoustid_key` in `config.toml` (see Configuration below)
+3. `acoustid_key` in config.toml
 
-Get a free AcoustID API key at https://acoustid.org/new-application.
+Get a free key at https://acoustid.org/new-application.
 
-### Rebuild hash index
+## Configuration
 
-```bash
-undisorder hashdb ~/Bilder/Fotos
-```
-
-Performs an incremental rebuild: updates `current_hash` for known files, adds new files, removes records for deleted files. Run this after editing metadata on imported files (e.g. tagging in Digikam) or after manually adding/removing files.
-
-### Verbosity
-
-```bash
-# Debug output
-undisorder --verbose import /path/to/media
-
-# Suppress informational output, only show warnings/errors
-undisorder --quiet import /path/to/media
-```
-
-### Configuration
-
-Settings can be persisted in `~/.config/undisorder/config.toml` (or `$XDG_CONFIG_HOME/undisorder/config.toml`). Create or update it interactively:
-
-```bash
-undisorder --configure
-```
-
-This walks through all settings and writes `config.toml`. Existing values are shown as defaults when updating.
-
-Example `config.toml`:
+`~/.config/undisorder/config.toml` (respects `$XDG_CONFIG_HOME`):
 
 ```toml
 images_target = "~/Bilder/Fotos"
@@ -177,198 +156,59 @@ exclude = ["*.wav", "*.aiff"]
 exclude_dir = ["DAW*"]
 ```
 
-CLI flags always override config file values. For list fields (`exclude`, `exclude_dir`), CLI and config values are merged.
+CLI flags override config values. List fields (`exclude`, `exclude_dir`)
+are merged from CLI and config.
 
-## Directory Structure
+## Directory structures
 
 ### Photos and videos
-
-undisorder creates a `YYYY/YYYY-MM` directory structure with intelligent naming:
 
 ```
 ~/Bilder/Fotos/
 ├── 2023/
 │   ├── 2023-08_Urlaub-Kroatien/
-│   │   ├── DSC_0001.jpg
-│   │   └── DSC_0002.jpg
 │   └── 2023-12/
-│       └── IMG_4567.jpg
-├── 2024/
-│   ├── 2024-03/
-│   │   └── photo.jpg
-│   └── 2024-07_Geburtstag-Oma/
-│       ├── IMG_1234.jpg
-│       └── IMG_1235.jpg
+└── 2024/
+    └── 2024-07_Geburtstag/
 ```
 
-### Audio files
+Date from EXIF (DateTimeOriginal, CreateDate, QuickTime, XMP), fallback to
+file mtime. Directory name from source folder if meaningful, otherwise plain
+`YYYY-MM`. Generic names (DCIM, Camera, downloads, ...) and camera folder
+patterns (100APPLE, 101_PANA, ...) are ignored.
 
-Audio files are organized by Artist/Album:
+### Audio
 
 ```
 ~/Musik/
 ├── The Beatles/
 │   └── Abbey Road/
 │       ├── 01_Come Together.mp3
-│       ├── 02_Something.mp3
-│       └── ...
-├── Pink Floyd/
-│   └── The Dark Side of the Moon/
-│       ├── 01_Speak to Me.flac
-│       └── ...
-├── Unknown Artist/
-│   └── Unknown Album/
-│       └── untitled_track.mp3
+│       └── 02_Something.mp3
+└── Unknown Artist/
+    └── Unknown Album/
+        └── untitled_track.mp3
 ```
 
-### Directory name priority (photos/videos)
+Path: `{target}/{Artist}/{Album}/{NN_Title}{ext}`. Falls back to
+`Unknown Artist` / `Unknown Album` for missing tags.
 
-1. **Source directory name** — if meaningful (not "DCIM", "Camera", etc.)
-2. **Fallback** — plain `YYYY/YYYY-MM/`
+## Disclaimer
 
-## How It Works
+This tool copies and moves files. Use `--dry-run` to verify before
+executing. The `dupes --delete` command permanently deletes files.
+There is no undo.
 
-### Pre-import: remove source duplicates
+The `--identify` option overwrites embedded audio tags in target files with
+data from MusicBrainz. Original source files are not modified when using
+`--move` (copy-then-delete).
 
-Run `undisorder dupes --delete <source>` before importing. This finds files with identical content across directories (via file size grouping + SHA256), keeps the copy with the oldest modification time from each duplicate group, and deletes the rest. This ensures no cross-directory duplicates enter the import pipeline.
+AcoustID and MusicBrainz lookups depend on external services. Results may
+be incomplete or incorrect.
 
-### Photos and videos
+No warranty. See LICENSE for details.
 
-Import processes files **one source directory at a time** (deepest first), in batches of up to 100 files. Each batch is a self-contained unit — if one directory fails, the rest still succeed.
-
-1. **Scan**: Recursively find all photos and videos, classify by extension
-2. **Filter**: Apply `--exclude` / `--exclude-dir` patterns, then `--select` for interactive review
-3. **Per-directory batch**:
-   - **Metadata**: Extract EXIF dates via `exiftool`
-   - **Hash**: SHA256 hash each file
-   - **Dedup**: Check `original_hash` against central SQLite index — skip already-imported content
-   - **Organize**: Determine target path using metadata + intelligent naming
-   - **Execute**: Copy/move files, update hash index
-
-### Audio files
-
-Same per-directory processing, in batches of up to 10 files (smaller batches due to potential AcoustID web requests).
-
-1. **Scan**: Identify audio files by extension (MP3, FLAC, OGG, M4A, WAV, ...)
-2. **Filter**: Same exclude/select filtering as photos/videos
-3. **Tags**: Read embedded tags (artist, album, title, track number) via mutagen
-4. **Identify** (optional): Fingerprint via AcoustID, look up metadata on MusicBrainz. Lookup data overwrites existing tags (falls back to existing when lookup field is empty).
-5. **Per-directory batch**:
-   - **Hash**: SHA256 hash each file
-   - **Dedup**: Skip already-imported content
-   - **Organize**: Place in `Artist/Album/NN_Title.ext` structure
-   - **Execute**: Copy/move files to target
-   - **Write tags** (with `--identify`): Write improved metadata into the target file, then compute `current_hash` from the modified target (so `current_hash ≠ original_hash`)
-   - **Index**: Update hash index
-
-## Database Architecture (HashDB)
-
-Central SQLite database at `~/.config/undisorder/undisorder.db` (or `$XDG_CONFIG_HOME/undisorder/undisorder.db`).
-Each `HashDB` instance is bound to a `target_dir` (resolved path) which scopes queries like `count()`, `delete_by_path()`, and `rebuild()`.
-A SHA256 hash uniquely identifies a file globally (collisions at typical collection sizes are practically impossible at ~10^-68).
-
-### Tables
-
-#### `files` — What is in the target?
-
-```sql
-CREATE TABLE files (
-    original_hash TEXT PRIMARY KEY,  -- SHA256 of source file at import time
-    current_hash  TEXT NOT NULL,     -- SHA256 of target file (updated on rebuild)
-    target_dir    TEXT NOT NULL,     -- informational
-    file_path     TEXT NOT NULL,     -- relative path within target_dir
-    import_date   TEXT NOT NULL
-);
-CREATE INDEX idx_target ON files(target_dir);
-CREATE INDEX idx_file_path ON files(file_path, target_dir);
-```
-
-- PK: `original_hash` — the hash of the source file at import time.
-- `current_hash` tracks the target file's state after external edits (e.g. Digikam tagging).
-- Import dedup checks only `original_hash` — re-importing the same source content is always skipped, even if the target file was later edited.
-- `rebuild` updates `current_hash` from disk without changing `original_hash`.
-
-#### `acoustid_cache` — AcoustID results
-
-```sql
-CREATE TABLE acoustid_cache (
-    file_hash    TEXT PRIMARY KEY,  -- SHA256, not target_dir-scoped
-    fingerprint  TEXT,
-    duration     REAL,
-    recording_id TEXT,              -- MusicBrainz recording ID
-    artist TEXT, album TEXT, title TEXT,
-    track_number INTEGER, disc_number INTEGER, year INTEGER,
-    lookup_date  TEXT NOT NULL
-);
-```
-
-- 1:1 mapping hash -> lookup result.
-- Saves repeated API calls (fpcalc + AcoustID + MusicBrainz).
-- Not target_dir-scoped — applies globally.
-
-### SHA256 Collisions
-
-Practically impossible. 256-bit output space (2^256), no known collision
-attack. Can be treated as unique for deduplication purposes.
-
-### Dedup Check During Import
-
-Single-stage check per file:
-
-```sql
-SELECT 1 FROM files WHERE original_hash = ?
-```
-Source file content already imported -> skip.
-
-### Write Timing
-
-| Event | Table | Method |
-|-------|-------|--------|
-| After copy/move of a new file | `files` | `insert()` |
-| After AcoustID lookup | `acoustid_cache` | `store_acoustid_cache()` (via `identify_audio`) |
-
-Every write commits immediately — no batch commits.
-
-### Rebuild
-
-`undisorder hashdb <target>` performs an incremental rebuild:
-
-1. **Known file_path** (already in DB) → update `current_hash` from disk
-2. **Unknown file_path** (new file on disk) → insert with `original_hash = current_hash = disk_hash`
-3. **Missing file** (DB record but no file on disk) → delete record
-
-### Source Tree Duplicate Search (`dupes`)
-
-Works **without the DB** — purely via file content using `hasher.find_duplicates()`:
-
-1. **Phase 1** — Group by `file_size` (cheap, filters out unique sizes)
-2. **Phase 2** — SHA256 hash only for files of equal size
-
-No AcoustID, no fingerprinting. Two different encodings of the same
-song (MP3 vs FLAC, 128kbps vs 320kbps) are **not** detected as duplicates
-— only byte-identical files.
-
-With `--delete`, files are sorted by mtime, the oldest copy is kept, the rest is deleted.
-
-### AcoustID and Dedup
-
-AcoustID runs during import **before** the hash dedup check, but serves a
-different purpose: it **identifies** untagged audio files (artist/album/title
-via fingerprint matching). It does not replace hash-based dedup.
-
-Acoustic duplicates (same song, different encoding) could be detected via
-the `recording_id` from the AcoustID cache — this is not done during
-import or `dupes`.
-
-### Metadata Editing
-
-Hashes are computed over the entire file content. If you later edit metadata on imported files — e.g. tagging photos in Digikam, editing ID3 tags in an audio player, or writing EXIF data with exiftool — the file content changes and `current_hash` no longer matches `original_hash`. This is expected and handled:
-
-- **`--identify` sets `current_hash` automatically**: When importing audio with `--identify`, improved tags are written to the target file. The index stores the original source hash as `original_hash` and the hash of the tag-modified target as `current_hash`.
-- **Re-importing the same source is safe**: Import dedup checks `original_hash` (the hash at import time), so editing the target file does not cause re-imports.
-- **Run `undisorder hashdb <target>` after editing**: This updates `current_hash` to match the file on disk, keeping the index in sync.
-
-## Contributing
+## Development
 
 ### Setup
 
@@ -377,12 +217,10 @@ git clone https://github.com/rnixx/undisorder.git
 cd undisorder
 python -m venv venv
 source venv/bin/activate
-pip install -e .[dev]
+pip install -e '.[dev]'
 ```
 
-### QA checks
-
-All checks must pass before merging. Run them locally:
+### QA
 
 ```bash
 # Tests
@@ -391,21 +229,26 @@ pytest -v
 # Linting
 ruff check src/ tests/
 
-# Import sorting (Plone profile)
+# Import sorting
 isort --check src/ tests/
 
 # Type checking
 ty check src/ tests/
 ```
 
-Fix auto-fixable issues:
+Auto-fix:
 
 ```bash
 ruff check --fix src/ tests/
 isort src/ tests/
 ```
 
-These same checks run in CI via GitHub Actions on every push and pull request.
+CI runs all checks via GitHub Actions on push and pull request
+(Python 3.11, 3.12, 3.13).
+
+## Author
+
+Robert Niederreiter <rnix@squarewave.at>
 
 ## License
 

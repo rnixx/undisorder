@@ -23,6 +23,7 @@ from undisorder.selector import group_by_directory
 from undisorder.selector import interactive_select
 
 import argparse
+import collections.abc
 import datetime
 import json
 import logging
@@ -172,7 +173,7 @@ def _run_batch_pipeline(
     media_label: str,
     failure_label: str,
     batch_size: int,
-    batch_fn: object,
+    batch_fn: collections.abc.Callable[[list[pathlib.Path]], tuple[int, int]],
 ) -> int:
     """Shared batch loop: group → iterate → try/except → summary.
 
