@@ -67,11 +67,20 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_import.add_argument("--dry-run", action="store_true", default=None, help="Show plan without executing")
     p_import.add_argument("--move", action="store_true", default=None, help="Move instead of copy")
-    p_import.add_argument(
+    identify_group = p_import.add_mutually_exclusive_group()
+    identify_group.add_argument(
         "--identify",
         action="store_true",
         default=None,
+        dest="identify",
         help="Enable AcoustID lookup for audio files with missing/incomplete tags",
+    )
+    identify_group.add_argument(
+        "--no-identify",
+        action="store_false",
+        default=None,
+        dest="identify",
+        help="Disable AcoustID lookup (overrides config)",
     )
     p_import.add_argument(
         "--acoustid-key",
@@ -134,7 +143,7 @@ def cmd_dupes(args: argparse.Namespace) -> None:
     deleted_count = 0
     freed_bytes = 0
     for i, group in enumerate(groups, 1):
-        logger.info(f"  Group {i} ({len(group.paths)} files, {group.file_size} bytes):")
+        logger.info(f"  Group {i} ({len(group.paths)} files, {_human_size(group.file_size)}):")
         for p in group.paths:
             logger.info(f"    {p}")
         logger.info("")

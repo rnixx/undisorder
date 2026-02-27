@@ -114,6 +114,8 @@ def _import_photo_video_batch(
 
         if db.hash_exists(h):
             skipped += 1
+            if args.dry_run:
+                logger.info(f"  [{i}/{len(batch)}] {f.name} (already imported, skipping)")
             continue
 
         to_import.append((f, h, is_video))
@@ -263,6 +265,8 @@ def _import_audio_batch(
 
         if aud_db.hash_exists(h):
             skipped += 1
+            if args.dry_run:
+                logger.info(f"  [{i}/{len(batch)}] {f.name} (already imported, skipping)")
             continue
 
         to_import.append((f, h))
@@ -328,6 +332,9 @@ def _import_audio(args: argparse.Namespace, result) -> int:
         return 0
 
     logger.info(f"\nFound {len(audio_files)} audio file(s)")
+
+    if args.identify and args.dry_run:
+        logger.info("[DRY RUN] Skipping --identify (no API calls in dry-run mode)")
 
     acoustid_key = (args.acoustid_key or os.environ.get("ACOUSTID_API_KEY")) if args.identify and not args.dry_run else None
 

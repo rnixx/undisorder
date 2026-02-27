@@ -96,6 +96,16 @@ class TestBuildParser:
         with pytest.raises(SystemExit):
             parser.parse_args(["--verbose", "--quiet", "dupes", "/tmp/s"])
 
+    def test_no_identify_flag(self):
+        parser = build_parser()
+        args = parser.parse_args(["import", "/tmp/source", "--no-identify"])
+        assert args.identify is False
+
+    def test_identify_and_no_identify_mutually_exclusive(self):
+        parser = build_parser()
+        with pytest.raises(SystemExit):
+            parser.parse_args(["import", "/tmp/source", "--identify", "--no-identify"])
+
 
 class TestMain:
     """Test main() entry point dispatch."""

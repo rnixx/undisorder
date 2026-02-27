@@ -129,6 +129,12 @@ class TestMergeConfigIntoArgs:
         merge_config_into_args(args, {"exclude": ["*.aiff", "*.wav"]})
         assert args.exclude == ["*.aiff", "*.wav"]
 
+    def test_no_identify_overrides_config(self):
+        args = self._make_args(identify=False)
+        merge_config_into_args(args, {"identify": True})
+        assert args.identify is False
+
+
 class TestCreateConfigInteractive:
     """Test interactive config creation."""
 

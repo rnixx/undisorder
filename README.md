@@ -128,6 +128,8 @@ For audio files with missing or inaccurate tags, use AcoustID to identify them. 
 undisorder import /path/to/music --identify
 ```
 
+When combining `--move` with `--identify`, undisorder always copies first, writes the improved tags into the target file, and then deletes the source. This ensures the source file is preserved until tags are safely written — a direct move would risk data loss if the tag write fails.
+
 The AcoustID API key is resolved in this order:
 1. `--acoustid-key=YOUR_KEY` CLI flag
 2. `ACOUSTID_API_KEY` environment variable

@@ -883,6 +883,34 @@ class TestImportAudio:
                 run_import(args)
 
         mock_identify.assert_not_called()
+        assert "[DRY RUN] Skipping --identify" in caplog.text
+
+    def test_dry_run_shows_skipped_files(self, tmp_path: pathlib.Path, caplog):
+        """Dry-run logs files that are already imported (skipped by hash dedup)."""
+        source = tmp_path / "source"
+        source.mkdir()
+        (source / "song.mp3").write_bytes(b"\xff\xfb\x90\x00already imported")
+
+        # First: real import so the hash is in the DB
+        args = self._make_args(tmp_path)
+        audio_meta = AudioMetadata(
+            source_path=source / "song.mp3",
+            artist="Artist", album="Album", title="Song", track_number=1,
+        )
+        with patch("undisorder.importer.extract_audio_batch", return_value={
+            source / "song.mp3": audio_meta,
+        }):
+            run_import(args)
+
+        # Second: dry-run import of the same file — should show "skipping"
+        args2 = self._make_args(tmp_path, dry_run=True)
+        with patch("undisorder.importer.extract_audio_batch", return_value={
+            source / "song.mp3": audio_meta,
+        }):
+            with caplog.at_level(logging.INFO, logger="undisorder"):
+                run_import(args2)
+
+        assert "already imported, skipping" in caplog.text
 
 
 class TestProgressLogging:
