@@ -17,6 +17,23 @@ live in a plain directory structure that works with any file manager, photo
 organizer, or music player. No database lock-in, no daemon, no ongoing
 dependency.
 
+## Disclaimer
+
+This tool copies and moves files. Use `--dry-run` to verify before
+executing. The `dupes --delete` command permanently deletes files.
+There is no undo.
+
+The `--identify` option overwrites embedded audio tags in target files with
+data from MusicBrainz. Original source files are not modified when using
+`--move` (copy-then-delete).
+
+AcoustID and MusicBrainz lookups depend on external services. Results may
+be incomplete or incorrect.
+
+No warranty. See LICENSE for details. If you encounter bugs or unexpected
+behavior, please report them at
+https://github.com/rnixx/undisorder/issues.
+
 ## Features
 
 - **Deduplication** -- two-phase detection (file size grouping + SHA256
@@ -205,21 +222,6 @@ patterns (100APPLE, 101_PANA, ...) are ignored.
 
 Path: `{target}/{Artist}/{Album}/{NN_Title}{ext}`. Falls back to
 `Unknown Artist` / `Unknown Album` for missing tags.
-
-## Disclaimer
-
-This tool copies and moves files. Use `--dry-run` to verify before
-executing. The `dupes --delete` command permanently deletes files.
-There is no undo.
-
-The `--identify` option overwrites embedded audio tags in target files with
-data from MusicBrainz. Original source files are not modified when using
-`--move` (copy-then-delete).
-
-AcoustID and MusicBrainz lookups depend on external services. Results may
-be incomplete or incorrect.
-
-No warranty. See LICENSE for details.
 
 ## Development
 
