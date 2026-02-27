@@ -4,6 +4,19 @@ Media organizer for photos, videos, and audio. Deduplicates via SHA256,
 sorts by EXIF date and embedded audio tags, identifies unknown audio via
 AcoustID/MusicBrainz, and imports into a clean directory structure.
 
+## Motivation
+
+Years of digital life leave behind a mess: phone backups scattered across
+drives, camera dumps in nested DCIM folders, music libraries with broken
+tags, duplicates everywhere. Existing tools either focus on one media type,
+require a GUI, or want to manage your collection permanently.
+
+undisorder is a one-shot import tool. Point it at a source, let it
+deduplicate, sort, and copy. After import, the tool is done -- your files
+live in a plain directory structure that works with any file manager, photo
+organizer, or music player. No database lock-in, no daemon, no ongoing
+dependency.
+
 ## Features
 
 - **Deduplication** -- two-phase detection (file size grouping + SHA256
