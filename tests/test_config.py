@@ -32,7 +32,6 @@ class TestLoadConfig:
             'audio_target = "/aud"',
             "dry_run = true",
             "move = true",
-            "interactive = true",
             "identify = true",
             "select = true",
             'exclude = ["*.wav", "*.aiff"]',
@@ -41,7 +40,7 @@ class TestLoadConfig:
         ])
         (tmp_path / CONFIG_FILENAME).write_text(toml)
         cfg = load_config(tmp_path)
-        assert len(cfg) == 11
+        assert len(cfg) == 10
 
     def test_ignores_unknown_keys(self, tmp_path):
         (tmp_path / CONFIG_FILENAME).write_text('unknown_key = "value"\n')
@@ -79,7 +78,7 @@ class TestMergeConfigIntoArgs:
         defaults = dict(
             images_target=None, video_target=None, audio_target=None,
             dry_run=None, move=None,
-            interactive=None, identify=None, select=None,
+            identify=None, select=None,
             exclude=None, exclude_dir=None, acoustid_key=None,
         )
         defaults.update(kwargs)
@@ -113,7 +112,6 @@ class TestMergeConfigIntoArgs:
         assert args.audio_target == pathlib.Path("~/Musik").expanduser()
         assert args.dry_run is False
         assert args.move is False
-        assert args.interactive is False
         assert args.identify is False
         assert args.select is False
         assert args.exclude == []

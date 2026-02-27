@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
+from undisorder.config import _config_dir
 from undisorder.hasher import hash_file
 
 import datetime
 import logging
-import os
 import pathlib
 import sqlite3
 
@@ -38,14 +38,6 @@ CREATE TABLE IF NOT EXISTS acoustid_cache (
     lookup_date TEXT NOT NULL
 );
 """
-
-
-def _config_dir() -> pathlib.Path:
-    """Return the undisorder config directory, creating it if needed."""
-    base = pathlib.Path(os.environ.get("XDG_CONFIG_HOME", "~/.config")).expanduser()
-    d = base / "undisorder"
-    d.mkdir(parents=True, exist_ok=True)
-    return d
 
 
 def _default_db_path() -> pathlib.Path:
@@ -89,7 +81,11 @@ class HashDB:
         self._conn.commit()
 
     def hash_exists(self, hash: str) -> bool:
-        """Check if a hash exists in the DB (checks original_hash)."""
+        """Check if original_hash exists globally (not scoped to target_dir).
+
+        Since original_hash is the primary key, a file can only be imported once
+        across all targets.
+        """
         cursor = self._conn.execute(
             "SELECT 1 FROM files WHERE original_hash = ?",
             (hash,),

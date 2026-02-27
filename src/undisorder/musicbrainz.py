@@ -131,6 +131,9 @@ def identify_audio(
                 disc_number=cached["disc_number"],
                 year=cached["year"],
             )
+            if not any([lookup_meta.artist, lookup_meta.album, lookup_meta.title,
+                        lookup_meta.track_number, lookup_meta.disc_number, lookup_meta.year]):
+                return existing_meta
             return AudioMetadata(
                 source_path=existing_meta.source_path,
                 artist=lookup_meta.artist or existing_meta.artist,

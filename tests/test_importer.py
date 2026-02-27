@@ -142,7 +142,7 @@ class TestImportPhotoVideo:
         args.dry_run = True
         args.move = False
 
-        args.interactive = False
+
         args.exclude = []
         args.exclude_dir = []
         args.select = False
@@ -185,7 +185,7 @@ class TestImportPhotoVideo:
         args.dry_run = False
         args.move = False
 
-        args.interactive = False
+
         args.exclude = []
         args.exclude_dir = []
         args.select = False
@@ -228,7 +228,7 @@ class TestImportPhotoVideo:
         args.dry_run = False
         args.move = True
 
-        args.interactive = False
+
         args.exclude = []
         args.exclude_dir = []
         args.select = False
@@ -274,7 +274,7 @@ class TestImportPhotoVideo:
         args.dry_run = False
         args.move = False
 
-        args.interactive = False
+
         args.exclude = []
         args.exclude_dir = []
         args.select = False
@@ -308,8 +308,6 @@ class TestBatchImport:
         args.audio_target = tmp_path / "musik"
         args.dry_run = False
         args.move = False
-
-        args.interactive = False
         args.identify = False
         args.acoustid_key = None
         args.exclude = []
@@ -486,8 +484,6 @@ class TestImportAudio:
         args.audio_target = tmp_path / "musik"
         args.dry_run = False
         args.move = False
-
-        args.interactive = False
         args.identify = False
         args.acoustid_key = None
         args.exclude = []
@@ -782,6 +778,112 @@ class TestImportAudio:
         mock_fp.assert_not_called()
         assert "cached" in caplog.text.lower()
 
+    def test_move_with_identify_deletes_source_after_success(self, tmp_path: pathlib.Path):
+        """With --move + --identify, source is deleted only after tag write + db insert."""
+        source = tmp_path / "source"
+        source.mkdir()
+        (source / "song.mp3").write_bytes(b"\xff\xfb\x90\x00move identify")
+
+        args = self._make_args(tmp_path, move=True, identify=True, acoustid_key="test-key")
+
+        audio_meta = AudioMetadata(
+            source_path=source / "song.mp3",
+            artist=None, album=None, title=None,
+        )
+        identified_meta = AudioMetadata(
+            source_path=source / "song.mp3",
+            artist="Identified Artist", album="Identified Album",
+            title="Identified Title", track_number=1,
+        )
+        with (
+            patch("undisorder.importer.extract_audio_batch", return_value={
+                source / "song.mp3": audio_meta,
+            }),
+            patch("undisorder.importer.identify_audio", return_value=identified_meta),
+            patch("undisorder.importer.write_audio_tags"),
+        ):
+            run_import(args)
+
+        # Source should be deleted after successful import
+        assert not (source / "song.mp3").exists()
+        # Target should exist
+        found = [
+            f for dirpath, _, files in os.walk(tmp_path / "musik")
+            for f in files if f.endswith(".mp3")
+        ]
+        assert len(found) == 1
+
+    def test_identify_no_improvement_skips_tag_write(self, tmp_path: pathlib.Path):
+        """When identify_audio returns existing_meta (same object), tags are not written."""
+        source = tmp_path / "source"
+        source.mkdir()
+        (source / "song.mp3").write_bytes(b"\xff\xfb\x90\x00no improvement")
+
+        args = self._make_args(tmp_path, identify=True, acoustid_key="test-key")
+
+        audio_meta = AudioMetadata(
+            source_path=source / "song.mp3",
+            artist="Original Artist", album="Original Album",
+            title="Original Title", track_number=1,
+        )
+        # identify_audio returns the same object (no improvement)
+        with (
+            patch("undisorder.importer.extract_audio_batch", return_value={
+                source / "song.mp3": audio_meta,
+            }),
+            patch("undisorder.importer.identify_audio", return_value=audio_meta),
+            patch("undisorder.importer.write_audio_tags") as mock_write_tags,
+        ):
+            run_import(args)
+
+        mock_write_tags.assert_not_called()
+
+    def test_identify_exits_without_api_key(self, tmp_path: pathlib.Path, monkeypatch):
+        """--identify without any API key source causes sys.exit(1)."""
+        import pytest
+
+        source = tmp_path / "source"
+        source.mkdir()
+        (source / "song.mp3").write_bytes(b"\xff\xfb\x90\x00no key")
+
+        args = self._make_args(tmp_path, identify=True, acoustid_key=None)
+        monkeypatch.delenv("ACOUSTID_API_KEY", raising=False)
+
+        audio_meta = AudioMetadata(
+            source_path=source / "song.mp3",
+            artist="Artist", album="Album", title="Song", track_number=1,
+        )
+        with (
+            patch("undisorder.importer.extract_audio_batch", return_value={
+                source / "song.mp3": audio_meta,
+            }),
+            pytest.raises(SystemExit, match="1"),
+        ):
+            run_import(args)
+
+    def test_dry_run_skips_identify(self, tmp_path: pathlib.Path, caplog):
+        """--dry-run + --identify does not make AcoustID API calls."""
+        source = tmp_path / "source"
+        source.mkdir()
+        (source / "song.mp3").write_bytes(b"\xff\xfb\x90\x00dry run identify")
+
+        args = self._make_args(tmp_path, dry_run=True, identify=True, acoustid_key="test-key")
+
+        audio_meta = AudioMetadata(
+            source_path=source / "song.mp3",
+            artist="Artist", album="Album", title="Song", track_number=1,
+        )
+        with (
+            patch("undisorder.importer.extract_audio_batch", return_value={
+                source / "song.mp3": audio_meta,
+            }),
+            patch("undisorder.importer.identify_audio") as mock_identify,
+        ):
+            with caplog.at_level(logging.INFO, logger="undisorder"):
+                run_import(args)
+
+        mock_identify.assert_not_called()
+
 
 class TestProgressLogging:
     """Test progress logging in batch loops."""
@@ -796,8 +898,6 @@ class TestProgressLogging:
         args.audio_target = tmp_path / "musik"
         args.dry_run = False
         args.move = False
-
-        args.interactive = False
         args.identify = False
         args.acoustid_key = None
         args.exclude = []
@@ -979,8 +1079,6 @@ class TestDryRunGrouped:
         args.audio_target = tmp_path / "musik"
         args.dry_run = True
         args.move = False
-
-        args.interactive = False
         args.identify = False
         args.acoustid_key = None
         args.exclude = []
@@ -1101,191 +1199,6 @@ class TestDryRunGrouped:
         assert "(1 file)" in caplog.text
 
 
-class TestInteractiveBatch:
-    """Test batch interactive confirmation grouped by dirname."""
-
-    def _make_args(self, tmp_path, **overrides):
-        source = tmp_path / "source"
-        source.mkdir(exist_ok=True)
-        args = MagicMock()
-        args.source = source
-        args.images_target = tmp_path / "photos"
-        args.video_target = tmp_path / "videos"
-        args.audio_target = tmp_path / "musik"
-        args.dry_run = False
-        args.move = False
-
-        args.interactive = True
-        args.identify = False
-        args.acoustid_key = None
-        args.exclude = []
-        args.exclude_dir = []
-        args.select = False
-        for k, v in overrides.items():
-            setattr(args, k, v)
-        (tmp_path / "photos").mkdir(exist_ok=True)
-        (tmp_path / "videos").mkdir(exist_ok=True)
-        (tmp_path / "musik").mkdir(exist_ok=True)
-        return args
-
-    def test_interactive_groups_by_dirname(self, tmp_path):
-        """2 files same dirname, Enter → both imported."""
-        source = tmp_path / "source"
-        source.mkdir(exist_ok=True)
-        (source / "a.jpg").write_bytes(b"\xff\xd8\xff\xd9aaa")
-        (source / "b.jpg").write_bytes(b"\xff\xd8\xff\xd9bbb")
-
-        args = self._make_args(tmp_path)
-
-        with patch("undisorder.importer.extract_batch") as mock_extract:
-            from undisorder.metadata import Metadata
-
-            import datetime
-            mock_extract.return_value = {
-                source / "a.jpg": Metadata(
-                    source_path=source / "a.jpg",
-                    date_taken=datetime.datetime(2024, 3, 15),
-                ),
-                source / "b.jpg": Metadata(
-                    source_path=source / "b.jpg",
-                    date_taken=datetime.datetime(2024, 3, 20),
-                ),
-            }
-            with patch("builtins.input", return_value=""):
-                run_import(args)
-
-        found_files = [
-            f for dirpath, _, files in os.walk(tmp_path / "photos")
-            for f in files if not f.endswith(".db")
-        ]
-        assert len(found_files) == 2
-
-    def test_interactive_rename_group(self, tmp_path):
-        """User types new name → all files in group use it."""
-        source = tmp_path / "source"
-        source.mkdir(exist_ok=True)
-        (source / "a.jpg").write_bytes(b"\xff\xd8\xff\xd9aaa")
-        (source / "b.jpg").write_bytes(b"\xff\xd8\xff\xd9bbb")
-
-        args = self._make_args(tmp_path)
-
-        with patch("undisorder.importer.extract_batch") as mock_extract:
-            from undisorder.metadata import Metadata
-
-            import datetime
-            mock_extract.return_value = {
-                source / "a.jpg": Metadata(
-                    source_path=source / "a.jpg",
-                    date_taken=datetime.datetime(2024, 3, 15),
-                ),
-                source / "b.jpg": Metadata(
-                    source_path=source / "b.jpg",
-                    date_taken=datetime.datetime(2024, 3, 20),
-                ),
-            }
-            with patch("builtins.input", return_value="MyTrip"):
-                run_import(args)
-
-        # Both files should be under MyTrip/
-        found_files = []
-        for dirpath, _, files in os.walk(tmp_path / "photos"):
-            for f in files:
-                if not f.endswith(".db"):
-                    found_files.append(os.path.join(dirpath, f))
-        assert len(found_files) == 2
-        assert all("MyTrip" in f for f in found_files)
-
-    def test_interactive_skip_group(self, tmp_path):
-        """User types 's' → nothing imported."""
-        source = tmp_path / "source"
-        source.mkdir(exist_ok=True)
-        (source / "a.jpg").write_bytes(b"\xff\xd8\xff\xd9aaa")
-
-        args = self._make_args(tmp_path)
-
-        with patch("undisorder.importer.extract_batch") as mock_extract:
-            from undisorder.metadata import Metadata
-
-            import datetime
-            mock_extract.return_value = {
-                source / "a.jpg": Metadata(
-                    source_path=source / "a.jpg",
-                    date_taken=datetime.datetime(2024, 3, 15),
-                ),
-            }
-            with patch("builtins.input", return_value="s"):
-                run_import(args)
-
-        found_files = [
-            f for dirpath, _, files in os.walk(tmp_path / "photos")
-            for f in files if not f.endswith(".db")
-        ]
-        assert len(found_files) == 0
-
-    def test_interactive_multiple_groups(self, tmp_path):
-        """2 groups, different decisions: accept one, skip another."""
-        source = tmp_path / "source"
-        source.mkdir(exist_ok=True)
-        (source / "march.jpg").write_bytes(b"\xff\xd8\xff\xd9march")
-        (source / "june.jpg").write_bytes(b"\xff\xd8\xff\xd9junexx")
-
-        args = self._make_args(tmp_path)
-
-        with patch("undisorder.importer.extract_batch") as mock_extract:
-            from undisorder.metadata import Metadata
-
-            import datetime
-            mock_extract.return_value = {
-                source / "march.jpg": Metadata(
-                    source_path=source / "march.jpg",
-                    date_taken=datetime.datetime(2024, 3, 15),
-                ),
-                source / "june.jpg": Metadata(
-                    source_path=source / "june.jpg",
-                    date_taken=datetime.datetime(2024, 6, 20),
-                ),
-            }
-            # Accept first group, skip second
-            with patch("builtins.input", side_effect=["", "s"]):
-                run_import(args)
-
-        found_files = [
-            f for dirpath, _, files in os.walk(tmp_path / "photos")
-            for f in files if not f.endswith(".db")
-        ]
-        assert len(found_files) == 1
-
-    def test_interactive_prompt_shows_file_count(self, tmp_path, caplog):
-        """Prompt contains file count."""
-        source = tmp_path / "source"
-        source.mkdir(exist_ok=True)
-        (source / "a.jpg").write_bytes(b"\xff\xd8\xff\xd9aaa")
-        (source / "b.jpg").write_bytes(b"\xff\xd8\xff\xd9bbb")
-
-        args = self._make_args(tmp_path)
-
-        with patch("undisorder.importer.extract_batch") as mock_extract:
-            from undisorder.metadata import Metadata
-
-            import datetime
-            mock_extract.return_value = {
-                source / "a.jpg": Metadata(
-                    source_path=source / "a.jpg",
-                    date_taken=datetime.datetime(2024, 3, 15),
-                ),
-                source / "b.jpg": Metadata(
-                    source_path=source / "b.jpg",
-                    date_taken=datetime.datetime(2024, 3, 20),
-                ),
-            }
-            with patch("builtins.input", return_value="") as mock_input:
-                run_import(args)
-
-            # The prompt should mention the file count
-            prompt = mock_input.call_args[0][0]
-            assert "2 files" in prompt
-
-
 class TestImportExclude:
     """Test --exclude and --exclude-dir filtering in import."""
 
@@ -1299,8 +1212,6 @@ class TestImportExclude:
         args.audio_target = tmp_path / "musik"
         args.dry_run = True
         args.move = False
-
-        args.interactive = False
         args.identify = False
         args.acoustid_key = None
         args.exclude = []
@@ -1420,8 +1331,6 @@ class TestImportEdgeCases:
         args.audio_target = tmp_path / "musik"
         args.dry_run = False
         args.move = False
-
-        args.interactive = False
         args.identify = False
         args.acoustid_key = None
         args.exclude = []
@@ -1495,7 +1404,7 @@ class TestImportEdgeCases:
         args.dry_run = True
         args.move = False
 
-        args.interactive = False
+
         args.exclude = []
         args.exclude_dir = []
         args.select = False
@@ -1608,7 +1517,7 @@ class TestFailureLogging:
         args.dry_run = False
         args.move = False
 
-        args.interactive = False
+
         args.exclude = []
         args.exclude_dir = []
         args.select = False

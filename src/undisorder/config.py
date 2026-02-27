@@ -18,7 +18,6 @@ _DEFAULTS: dict[str, object] = {
     "audio_target": "~/Musik",
     "dry_run": False,
     "move": False,
-    "interactive": False,
     "identify": False,
     "select": False,
     "exclude": [],
@@ -27,7 +26,7 @@ _DEFAULTS: dict[str, object] = {
 }
 
 _PATH_KEYS = {"images_target", "video_target", "audio_target"}
-_BOOL_KEYS = {"dry_run", "move", "interactive", "identify", "select"}
+_BOOL_KEYS = {"dry_run", "move", "identify", "select"}
 _LIST_KEYS = {"exclude", "exclude_dir"}
 
 
@@ -112,7 +111,6 @@ def create_config_interactive(
         ("audio_target", "Audio target directory", str(_DEFAULTS["audio_target"])),
         ("dry_run", "Dry run (true/false)", str(_DEFAULTS["dry_run"]).lower()),
         ("move", "Move instead of copy (true/false)", str(_DEFAULTS["move"]).lower()),
-        ("interactive", "Interactive mode (true/false)", str(_DEFAULTS["interactive"]).lower()),
         ("identify", "AcoustID identification (true/false)", str(_DEFAULTS["identify"]).lower()),
         ("select", "Interactive directory selection (true/false)", str(_DEFAULTS["select"]).lower()),
     ]

@@ -29,6 +29,7 @@ import logging
 import os
 import pathlib
 import shutil
+import sys
 import traceback
 
 
@@ -136,73 +137,27 @@ def _import_photo_video_batch(
 
         imported = len(to_import)
     else:
-        # Resolve dirnames for files
-        resolved: list[tuple[pathlib.Path, str, bool, str]] = []
         for src_path, file_hash, is_video in to_import:
             meta = metadata_map.get(src_path, Metadata(source_path=src_path))
             dirname = suggest_dirname(meta, source_root=args.source)
-            resolved.append((src_path, file_hash, is_video, dirname))
 
-        # Interactive mode: group by dirname and prompt once per group
-        if args.interactive and resolved:
-            groups: dict[str, list[tuple[pathlib.Path, str, bool]]] = {}
-            for src_path, file_hash, is_video, dirname in resolved:
-                groups.setdefault(dirname, []).append((src_path, file_hash, is_video))
+            target_base = args.video_target if is_video else args.images_target
+            target_path = target_base / dirname / src_path.name
+            target_path = resolve_collision(target_path)
 
-            for dirname, group_files in groups.items():
-                n = len(group_files)
-                label = "file" if n == 1 else "files"
-                names = [f.name for f, _, _ in group_files]
-                if n <= 5:
-                    file_list = ", ".join(names)
-                else:
-                    file_list = ", ".join(names[:5]) + f", ... +{n - 5} more"
-                user_input = input(
-                    f"  {dirname}/ ({n} {label}: {file_list})\n"
-                    f"  [Enter=accept, type new name, or 's' to skip]: "
-                ).strip()
+            target_path.parent.mkdir(parents=True, exist_ok=True)
+            if args.move:
+                shutil.move(str(src_path), str(target_path))
+            else:
+                shutil.copy2(str(src_path), str(target_path))
 
-                if user_input == "s":
-                    continue
-
-                effective_dirname = user_input if user_input else dirname
-                for src_path, file_hash, is_video in group_files:
-                    target_base = args.video_target if is_video else args.images_target
-                    target_path = target_base / effective_dirname / src_path.name
-                    target_path = resolve_collision(target_path)
-
-                    target_path.parent.mkdir(parents=True, exist_ok=True)
-                    if args.move:
-                        shutil.move(str(src_path), str(target_path))
-                    else:
-                        shutil.copy2(str(src_path), str(target_path))
-
-                    db = vid_db if is_video else img_db
-                    rel_path = target_path.relative_to(target_base)
-                    db.insert(
-                        original_hash=file_hash,
-                        file_path=str(rel_path),
-                    )
-                    imported += 1
-        else:
-            for src_path, file_hash, is_video, dirname in resolved:
-                target_base = args.video_target if is_video else args.images_target
-                target_path = target_base / dirname / src_path.name
-                target_path = resolve_collision(target_path)
-
-                target_path.parent.mkdir(parents=True, exist_ok=True)
-                if args.move:
-                    shutil.move(str(src_path), str(target_path))
-                else:
-                    shutil.copy2(str(src_path), str(target_path))
-
-                db = vid_db if is_video else img_db
-                rel_path = target_path.relative_to(target_base)
-                db.insert(
-                    original_hash=file_hash,
-                    file_path=str(rel_path),
-                )
-                imported += 1
+            db = vid_db if is_video else img_db
+            rel_path = target_path.relative_to(target_base)
+            db.insert(
+                original_hash=file_hash,
+                file_path=str(rel_path),
+            )
+            imported += 1
 
     return imported, skipped
 
@@ -283,6 +238,7 @@ def _import_audio_batch(
 
     imported = 0
     skipped = 0
+    identified: set[pathlib.Path] = set()
 
     # Hash, dedup against target, collect files to import
     to_import: list[tuple[pathlib.Path, str]] = []
@@ -295,10 +251,13 @@ def _import_audio_batch(
             cached = aud_db.get_acoustid_cache(h)
             suffix = " \u2014 AcoustID (cached)" if cached else " \u2014 AcoustID ..."
             logger.info(f"  [{i}/{len(batch)}] {f.name}{suffix}")
+            original = audio_meta_map[f]
             audio_meta_map[f] = identify_audio(
-                f, audio_meta_map[f],
+                f, original,
                 api_key=acoustid_key, file_hash=h, db=aud_db,
             )
+            if audio_meta_map[f] is not original:
+                identified.add(f)
         else:
             logger.info(f"  [{i}/{len(batch)}] {f.name}")
 
@@ -335,13 +294,13 @@ def _import_audio_batch(
             target_path = resolve_collision(target_path)
 
             target_path.parent.mkdir(parents=True, exist_ok=True)
-            if args.move:
+            if args.move and not acoustid_key:
                 shutil.move(str(src_path), str(target_path))
             else:
                 shutil.copy2(str(src_path), str(target_path))
 
             current_hash = file_hash
-            if acoustid_key and meta.artist:
+            if src_path in identified:
                 write_audio_tags(target_path, meta)
                 current_hash = hash_file(target_path)
 
@@ -352,6 +311,9 @@ def _import_audio_batch(
                 file_path=str(rel_path),
             )
             imported += 1
+
+            if args.move and acoustid_key:
+                src_path.unlink()
 
     return imported, skipped
 
@@ -367,7 +329,11 @@ def _import_audio(args: argparse.Namespace, result) -> int:
 
     logger.info(f"\nFound {len(audio_files)} audio file(s)")
 
-    acoustid_key = (args.acoustid_key or os.environ.get("ACOUSTID_API_KEY")) if args.identify else None
+    acoustid_key = (args.acoustid_key or os.environ.get("ACOUSTID_API_KEY")) if args.identify and not args.dry_run else None
+
+    if args.identify and acoustid_key is None and not args.dry_run:
+        logger.error("--identify requires an AcoustID API key (--acoustid-key, ACOUSTID_API_KEY, or config.toml)")
+        sys.exit(1)
 
     if not args.dry_run:
         args.audio_target.mkdir(parents=True, exist_ok=True)

@@ -30,7 +30,6 @@ class TestBuildParser:
         assert args.audio_target is None
         assert args.dry_run is None
         assert args.move is None
-        assert args.interactive is None
         assert args.identify is None
         assert args.acoustid_key is None
         assert args.exclude is None
@@ -46,7 +45,6 @@ class TestBuildParser:
             "--audio-target", "/custom/music",
             "--dry-run",
             "--move",
-            "--interactive",
             "--identify",
             "--acoustid-key", "test-key-123",
             "--exclude", "*.wav",
@@ -60,7 +58,6 @@ class TestBuildParser:
         assert args.audio_target == pathlib.Path("/custom/music")
         assert args.dry_run is True
         assert args.move is True
-        assert args.interactive is True
         assert args.identify is True
         assert args.acoustid_key == "test-key-123"
         assert args.exclude == ["*.wav", "*.aiff"]

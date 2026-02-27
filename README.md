@@ -14,7 +14,6 @@ Photo/Video/Audio organization tool — deduplicates, sorts by date/topic/artist
 - **Exclude patterns**: Filter out files or directories by glob pattern (e.g. DAW project folders, WAV samples)
 - **Interactive selection**: Review and accept/skip directories before importing
 - **Dry-run mode**: Preview what would happen before committing
-- **Interactive mode**: Confirm/edit folder name suggestions
 - **Copy or move**: Default is copy; use `--move` to relocate files
 
 ## Installation
@@ -61,7 +60,6 @@ undisorder import /mnt/backup --select --dry-run
 undisorder import /mnt/backup \
     --select \
     --identify \
-    --interactive \
     --exclude '*.wav' --exclude-dir 'DAW*'
 ```
 
@@ -95,11 +93,10 @@ undisorder import /path/to/unsorted-media \
 # Move files instead of copying
 undisorder import /path/to/unsorted-media --move
 
-# Full workflow: select folders, identify audio, confirm names
+# Full workflow: select folders, identify audio
 undisorder import /path/to/unsorted-media \
     --select \
-    --identify \
-    --interactive
+    --identify
 ```
 
 ### Filter what gets imported

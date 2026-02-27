@@ -386,6 +386,30 @@ class TestIdentifyAudioCache:
         assert cached["artist"] == "API Artist"
         db.close()
 
+    def test_cache_hit_empty_metadata_returns_existing(self, tmp_path, tmp_target):
+        """When cached lookup has all-None fields (API failure), return existing_meta unchanged."""
+        db = HashDB(tmp_target, db_path=tmp_path / "test.db")
+        db.store_acoustid_cache(
+            file_hash="empty-cache-hash",
+            fingerprint="FP...",
+            duration=240.0,
+            recording_id=None,
+            metadata={},
+        )
+
+        existing = AudioMetadata(
+            source_path=pathlib.Path("/fake/song.mp3"),
+            artist="My Artist",
+            album="My Album",
+            title="My Title",
+        )
+        result = identify_audio(
+            pathlib.Path("/fake/song.mp3"), existing, api_key="key",
+            file_hash="empty-cache-hash", db=db,
+        )
+        assert result is existing
+        db.close()
+
     def test_cache_stores_on_api_failure(self, tmp_path, tmp_target):
         """On API failure (no recording_id), cache stores fingerprint with null metadata."""
         db = HashDB(tmp_target, db_path=tmp_path / "test.db")

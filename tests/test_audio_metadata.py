@@ -257,11 +257,16 @@ class TestWriteAudioTags:
         assert result.album == "Original Album"  # untouched
         assert result.title == "New Title"  # written
 
-    def test_unreadable_file_is_noop(self, tmp_path):
-        """If mutagen can't open the file, write is silently skipped."""
+    def test_unreadable_file_is_noop(self, tmp_path, caplog):
+        """If mutagen can't open the file, write logs warning and is skipped."""
+        import logging
+
         bad_path = tmp_path / "not_audio.bin"
         bad_path.write_bytes(b"not audio data")
 
         meta = AudioMetadata(source_path=bad_path, artist="Artist")
-        # Should not raise
-        write_audio_tags(bad_path, meta)
+        with caplog.at_level(logging.WARNING):
+            write_audio_tags(bad_path, meta)
+
+        assert "Cannot write tags" in caplog.text
+        assert "not_audio.bin" in caplog.text
