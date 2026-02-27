@@ -6,11 +6,10 @@ Photo/Video/Audio organization tool — deduplicates, sorts by date/topic/artist
 
 - **Smart deduplication**: `dupes --delete` removes cross-directory duplicates before import (file size grouping + SHA256); import skips files already in target via hash index
 - **Per-directory batch processing**: Processes one source directory at a time (deepest first) — low memory, resilient to errors, natural progress feedback
-- **Intelligent directory naming**: Uses EXIF dates, source folder names, keywords, GPS data to create meaningful folder structures like `2024/2024-03_Wien/`
+- **Intelligent directory naming**: Uses EXIF dates and meaningful source folder names to create folder structures like `2024/2024-03_Urlaub/`
 - **Photo + Video support**: Handles all common formats (JPEG, PNG, HEIC, RAW, MP4, MOV, MKV, ...)
 - **Audio support**: Organizes by Artist/Album using embedded tags (ID3, Vorbis, MP4 atoms) via mutagen
 - **Audio identification**: AcoustID fingerprinting + MusicBrainz lookup for untagged audio files
-- **GPS reverse geocoding**: Offline (bundled database) or online (OpenStreetMap/Nominatim)
 - **SQLite hash index**: Tracks imported files to avoid re-importing duplicates across runs
 - **Exclude patterns**: Filter out files or directories by glob pattern (e.g. DAW project folders, WAV samples)
 - **Interactive selection**: Review and accept/skip directories before importing
@@ -61,7 +60,6 @@ undisorder import /mnt/backup --select --dry-run
 # 3. Happy with the plan? Import for real, with all the bells and whistles
 undisorder import /mnt/backup \
     --select \
-    --geocoding=online \
     --identify \
     --interactive \
     --exclude '*.wav' --exclude-dir 'DAW*'
@@ -100,10 +98,9 @@ undisorder import /path/to/unsorted-media --move
 # Re-import files when source is newer than previous import
 undisorder import /path/to/unsorted-media --update
 
-# Full workflow: select folders, geocode, identify audio, confirm names
+# Full workflow: select folders, identify audio, confirm names
 undisorder import /path/to/unsorted-media \
     --select \
-    --geocoding=online \
     --identify \
     --interactive
 ```
@@ -178,7 +175,6 @@ Example `config.toml`:
 images_target = "~/Bilder/Fotos"
 video_target = "~/Videos"
 audio_target = "~/Musik"
-geocoding = "offline"
 identify = true
 acoustid_key = "your-api-key"
 exclude = ["*.wav", "*.aiff"]
@@ -202,7 +198,7 @@ undisorder creates a `YYYY/YYYY-MM` directory structure with intelligent naming:
 │   └── 2023-12/
 │       └── IMG_4567.jpg
 ├── 2024/
-│   ├── 2024-03_Wien/
+│   ├── 2024-03/
 │   │   └── photo.jpg
 │   └── 2024-07_Geburtstag-Oma/
 │       ├── IMG_1234.jpg
@@ -232,11 +228,7 @@ Audio files are organized by Artist/Album:
 ### Directory name priority (photos/videos)
 
 1. **Source directory name** — if meaningful (not "DCIM", "Camera", etc.)
-2. **EXIF keywords/subject** — from photo metadata
-3. **GPS place name** — via reverse geocoding (when enabled)
-4. **Description** — from EXIF ImageDescription
-5. **User comment** — from EXIF UserComment
-6. **Fallback** — plain `YYYY/YYYY-MM/`
+2. **Fallback** — plain `YYYY/YYYY-MM/`
 
 ## How It Works
 
@@ -251,7 +243,7 @@ Import processes files **one source directory at a time** (deepest first), in ba
 1. **Scan**: Recursively find all photos and videos, classify by extension
 2. **Filter**: Apply `--exclude` / `--exclude-dir` patterns, then `--select` for interactive review
 3. **Per-directory batch**:
-   - **Metadata**: Extract EXIF dates, GPS, keywords via `exiftool`
+   - **Metadata**: Extract EXIF dates via `exiftool`
    - **Hash**: SHA256 hash each file
    - **Check target**: Compare hashes against central SQLite index — skip already-imported files
    - **Organize**: Determine target path using metadata + intelligent naming

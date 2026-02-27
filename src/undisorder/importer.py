@@ -5,8 +5,6 @@ from __future__ import annotations
 from undisorder.audio_metadata import AudioMetadata
 from undisorder.audio_metadata import extract_audio_batch
 from undisorder.config import _config_dir
-from undisorder.geocoder import Geocoder
-from undisorder.geocoder import GeocodingMode
 from undisorder.hashdb import HashDB
 from undisorder.hasher import hash_file
 from undisorder.metadata import extract_batch
@@ -97,7 +95,6 @@ def _source_is_newer(source_path: pathlib.Path, target_path: pathlib.Path) -> bo
 def _import_photo_video_batch(
     batch: list[pathlib.Path],
     args: argparse.Namespace,
-    geocoder,
     img_db: HashDB,
     vid_db: HashDB,
 ) -> tuple[int, int]:
@@ -164,10 +161,7 @@ def _import_photo_video_batch(
                 updates.append(f"  [UPDATE] {src_path} -> {old_target}")
                 continue
 
-            place_name = None
-            if meta.has_gps and meta.gps_lat is not None and meta.gps_lon is not None:
-                place_name = geocoder.reverse(meta.gps_lat, meta.gps_lon)
-            dirname = suggest_dirname(meta, place_name=place_name, source_root=args.source)
+            dirname = suggest_dirname(meta, source_root=args.source)
             grouped.setdefault(dirname, []).append(src_path.name)
 
         for dirname, filenames in grouped.items():
@@ -216,26 +210,23 @@ def _import_photo_video_batch(
                 db.update_import(str(src_path), file_hash, old_file_path)
                 imported += 1
 
-        # Resolve dirnames and geocoding for new files
-        resolved_new: list[tuple[pathlib.Path, str, bool, str, str | None]] = []
+        # Resolve dirnames for new files
+        resolved_new: list[tuple[pathlib.Path, str, bool, str]] = []
         for src_path, file_hash, is_video, _, _ in new_entries:
             meta = metadata_map.get(src_path, Metadata(source_path=src_path))
-            place_name = None
-            if meta.has_gps and meta.gps_lat is not None and meta.gps_lon is not None:
-                place_name = geocoder.reverse(meta.gps_lat, meta.gps_lon)
-            dirname = suggest_dirname(meta, place_name=place_name, source_root=args.source)
-            resolved_new.append((src_path, file_hash, is_video, dirname, place_name))
+            dirname = suggest_dirname(meta, source_root=args.source)
+            resolved_new.append((src_path, file_hash, is_video, dirname))
 
         # Interactive mode: group by dirname and prompt once per group
         if args.interactive and resolved_new:
-            groups: dict[str, list[tuple[pathlib.Path, str, bool, str | None]]] = {}
-            for src_path, file_hash, is_video, dirname, place_name in resolved_new:
-                groups.setdefault(dirname, []).append((src_path, file_hash, is_video, place_name))
+            groups: dict[str, list[tuple[pathlib.Path, str, bool]]] = {}
+            for src_path, file_hash, is_video, dirname in resolved_new:
+                groups.setdefault(dirname, []).append((src_path, file_hash, is_video))
 
             for dirname, group_files in groups.items():
                 n = len(group_files)
                 label = "file" if n == 1 else "files"
-                names = [f.name for f, _, _, _ in group_files]
+                names = [f.name for f, _, _ in group_files]
                 if n <= 5:
                     file_list = ", ".join(names)
                 else:
@@ -249,7 +240,7 @@ def _import_photo_video_batch(
                     continue
 
                 effective_dirname = user_input if user_input else dirname
-                for src_path, file_hash, is_video, place_name in group_files:
+                for src_path, file_hash, is_video in group_files:
                     target_base = args.video_target if is_video else args.images_target
                     target_path = target_base / effective_dirname / src_path.name
                     target_path = resolve_collision(target_path)
@@ -274,14 +265,13 @@ def _import_photo_video_batch(
                     db.record_import(str(src_path), file_hash, str(rel_path))
                     imported += 1
         else:
-            for src_path, file_hash, is_video, dirname, place_name in resolved_new:
+            for src_path, file_hash, is_video, dirname in resolved_new:
                 meta = metadata_map.get(src_path, Metadata(source_path=src_path))
                 target_path = determine_target_path(
                     meta=meta,
                     images_target=args.images_target,
                     video_target=args.video_target,
                     is_video=is_video,
-                    place_name=place_name,
                     source_root=args.source,
                 )
                 target_path = resolve_collision(target_path)
@@ -320,9 +310,6 @@ def _import_photo_video(args: argparse.Namespace, result) -> int:
 
     logger.info(f"Found {len(media_files)} photo/video files ({len(result.photos)} photos, {len(result.videos)} videos)")
 
-    geocoding_mode = GeocodingMode(args.geocoding)
-    geocoder = Geocoder(geocoding_mode)
-
     if not args.dry_run:
         args.images_target.mkdir(parents=True, exist_ok=True)
         args.video_target.mkdir(parents=True, exist_ok=True)
@@ -345,7 +332,7 @@ def _import_photo_video(args: argparse.Namespace, result) -> int:
         logger.info(f"Processing photo/video {batch_idx}/{total_batches}: {rel_dir}/ ({n} {label})")
         try:
             imported, skipped = _import_photo_video_batch(
-                batch, args, geocoder, img_db, vid_db,
+                batch, args, img_db, vid_db,
             )
             total_imported += imported
             total_skipped += skipped

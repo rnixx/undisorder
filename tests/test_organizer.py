@@ -121,35 +121,6 @@ class TestSuggestDirname:
         )
         assert suggest_dirname(meta) == "2024/2024-03_Geburtstag-Oma"
 
-    def test_keywords_used_when_no_meaningful_dir(self):
-        meta = Metadata(
-            source_path=pathlib.Path("/source/DCIM/photo.jpg"),
-            date_taken=datetime.datetime(2024, 6, 20),
-            keywords=["vacation", "beach"],
-        )
-        assert suggest_dirname(meta) == "2024/2024-06_vacation"
-
-    def test_description_used_as_fallback(self):
-        meta = Metadata(
-            source_path=pathlib.Path("/source/DCIM/photo.jpg"),
-            date_taken=datetime.datetime(2024, 1, 10),
-            description="A winter hike in the mountains",
-        )
-        result = suggest_dirname(meta)
-        assert result.startswith("2024/2024-01_")
-        # Should contain first few words of description
-        assert "winter" in result.lower() or "hike" in result.lower()
-
-    def test_gps_place_name(self):
-        meta = Metadata(
-            source_path=pathlib.Path("/source/DCIM/photo.jpg"),
-            date_taken=datetime.datetime(2024, 3, 15),
-            gps_lat=48.2082,
-            gps_lon=16.3738,
-        )
-        # With a place name provided
-        assert suggest_dirname(meta, place_name="Wien") == "2024/2024-03_Wien"
-
     def test_no_date_uses_unknown(self):
         meta = Metadata(source_path=pathlib.Path("/source/DCIM/photo.jpg"))
         assert suggest_dirname(meta) == "unknown_date"
@@ -160,22 +131,13 @@ class TestSuggestDirname:
         )
         assert suggest_dirname(meta) == "unknown_date/Hochzeit"
 
-    def test_priority_source_dir_over_keywords(self):
-        """Source directory name takes priority over keywords."""
-        meta = Metadata(
-            source_path=pathlib.Path("/source/Hochzeit/photo.jpg"),
-            date_taken=datetime.datetime(2024, 7, 1),
-            keywords=["party"],
-        )
-        assert suggest_dirname(meta) == "2024/2024-07_Hochzeit"
-
-    def test_subject_used_like_keywords(self):
+    def test_generic_dir_falls_back_to_date(self):
+        """Generic source dir (DCIM) falls back to date only."""
         meta = Metadata(
             source_path=pathlib.Path("/source/DCIM/photo.jpg"),
-            date_taken=datetime.datetime(2024, 8, 5),
-            subject=["concert"],
+            date_taken=datetime.datetime(2024, 6, 20),
         )
-        assert suggest_dirname(meta) == "2024/2024-08_concert"
+        assert suggest_dirname(meta) == "2024/2024-06"
 
 
 class TestResolveCollision:

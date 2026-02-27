@@ -30,7 +30,6 @@ class TestBuildParser:
         assert args.audio_target is None
         assert args.dry_run is None
         assert args.move is None
-        assert args.geocoding is None
         assert args.interactive is None
         assert args.identify is None
         assert args.acoustid_key is None
@@ -48,7 +47,6 @@ class TestBuildParser:
             "--audio-target", "/custom/music",
             "--dry-run",
             "--move",
-            "--geocoding", "offline",
             "--interactive",
             "--identify",
             "--acoustid-key", "test-key-123",
@@ -64,7 +62,6 @@ class TestBuildParser:
         assert args.audio_target == pathlib.Path("/custom/music")
         assert args.dry_run is True
         assert args.move is True
-        assert args.geocoding == "offline"
         assert args.interactive is True
         assert args.identify is True
         assert args.acoustid_key == "test-key-123"
@@ -78,17 +75,6 @@ class TestBuildParser:
         args = parser.parse_args(["hashdb", "/tmp/target"])
         assert args.command == "hashdb"
         assert args.target == pathlib.Path("/tmp/target")
-
-    def test_geocoding_choices(self):
-        parser = build_parser()
-        for mode in ("off", "offline", "online"):
-            args = parser.parse_args(["import", "/tmp/s", "--geocoding", mode])
-            assert args.geocoding == mode
-
-    def test_invalid_geocoding_rejected(self):
-        parser = build_parser()
-        with pytest.raises(SystemExit):
-            parser.parse_args(["import", "/tmp/s", "--geocoding", "invalid"])
 
     def test_verbose_flag(self):
         parser = build_parser()

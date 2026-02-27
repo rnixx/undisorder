@@ -65,25 +65,12 @@ def _get_meaningful_source_dir(
     return None
 
 
-def _truncate_description(desc: str, max_words: int = 4) -> str:
-    """Truncate a description to the first few words for directory naming."""
-    words = desc.split()[:max_words]
-    result = "-".join(words)
-    # Clean up characters that are problematic in directory names
-    result = re.sub(r"[^\w\-]", "", result)
-    return result
-
-
-def suggest_dirname(meta: Metadata, *, place_name: str | None = None, source_root: pathlib.Path | None = None) -> str:
+def suggest_dirname(meta: Metadata, *, source_root: pathlib.Path | None = None) -> str:
     """Suggest a target directory name based on metadata.
 
     Priority order:
     1. Source directory name (if meaningful)
-    2. EXIF keywords/subject
-    3. GPS place name
-    4. Description
-    5. User comment
-    6. Fallback: YYYY/YYYY-MM
+    2. Fallback: YYYY/YYYY-MM
     """
     # Determine the date prefix
     if meta.date_taken:
@@ -93,31 +80,8 @@ def suggest_dirname(meta: Metadata, *, place_name: str | None = None, source_roo
     else:
         date_prefix = None
 
-    # Try to find a topic name
-    topic: str | None = None
-
-    # Priority 1: Meaningful source directory
-    source_dir = _get_meaningful_source_dir(meta.source_path, source_root=source_root)
-    if source_dir:
-        topic = source_dir
-
-    # Priority 2: Keywords or Subject
-    if topic is None:
-        kw = meta.keywords or meta.subject
-        if kw:
-            topic = kw[0]
-
-    # Priority 3: GPS place name
-    if topic is None and place_name:
-        topic = place_name
-
-    # Priority 4: Description
-    if topic is None and meta.description:
-        topic = _truncate_description(meta.description)
-
-    # Priority 5: User comment
-    if topic is None and meta.user_comment:
-        topic = _truncate_description(meta.user_comment)
+    # Try to find a topic name from source directory
+    topic = _get_meaningful_source_dir(meta.source_path, source_root=source_root)
 
     # Build path
     if date_prefix and topic:
@@ -159,12 +123,11 @@ def determine_target_path(
     images_target: pathlib.Path,
     video_target: pathlib.Path,
     is_video: bool,
-    place_name: str | None = None,
     source_root: pathlib.Path | None = None,
 ) -> pathlib.Path:
     """Determine the full target path for a file."""
     base_target = video_target if is_video else images_target
-    dirname = suggest_dirname(meta, place_name=place_name, source_root=source_root)
+    dirname = suggest_dirname(meta, source_root=source_root)
     filename = meta.source_path.name
     return base_target / dirname / filename
 

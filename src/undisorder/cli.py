@@ -67,12 +67,6 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_import.add_argument("--dry-run", action="store_true", default=None, help="Show plan without executing")
     p_import.add_argument("--move", action="store_true", default=None, help="Move instead of copy")
-    p_import.add_argument(
-        "--geocoding",
-        choices=["off", "offline", "online"],
-        default=None,
-        help="GPS reverse geocoding mode (default: off)",
-    )
     p_import.add_argument("--interactive", action="store_true", default=None, help="Confirm folder name suggestions")
     p_import.add_argument(
         "--identify",

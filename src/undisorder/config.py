@@ -16,7 +16,6 @@ _DEFAULTS: dict[str, object] = {
     "images_target": "~/Bilder/Fotos",
     "video_target": "~/Videos",
     "audio_target": "~/Musik",
-    "geocoding": "off",
     "dry_run": False,
     "move": False,
     "update": False,
@@ -31,7 +30,6 @@ _DEFAULTS: dict[str, object] = {
 _PATH_KEYS = {"images_target", "video_target", "audio_target"}
 _BOOL_KEYS = {"dry_run", "move", "update", "interactive", "identify", "select"}
 _LIST_KEYS = {"exclude", "exclude_dir"}
-_VALID_GEOCODING = {"off", "offline", "online"}
 
 
 def _config_dir() -> pathlib.Path:
@@ -83,14 +81,6 @@ def merge_config_into_args(args, config: dict) -> None:
         else:
             setattr(args, key, _DEFAULTS[key])
 
-    # Geocoding — validate
-    if getattr(args, "geocoding", None) is None:
-        cfg_val = config.get("geocoding")
-        if cfg_val in _VALID_GEOCODING:
-            args.geocoding = cfg_val
-        else:
-            args.geocoding = _DEFAULTS["geocoding"]
-
     # List fields — merge CLI + config
     for key in _LIST_KEYS:
         cli_val = getattr(args, key, None) or []
@@ -121,7 +111,6 @@ def create_config_interactive(
         ("images_target", "Images target directory", str(_DEFAULTS["images_target"])),
         ("video_target", "Video target directory", str(_DEFAULTS["video_target"])),
         ("audio_target", "Audio target directory", str(_DEFAULTS["audio_target"])),
-        ("geocoding", "Geocoding mode (off/offline/online)", str(_DEFAULTS["geocoding"])),
         ("dry_run", "Dry run (true/false)", str(_DEFAULTS["dry_run"]).lower()),
         ("move", "Move instead of copy (true/false)", str(_DEFAULTS["move"]).lower()),
         ("update", "Update changed files (true/false)", str(_DEFAULTS["update"]).lower()),

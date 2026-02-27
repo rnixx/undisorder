@@ -142,7 +142,7 @@ class TestImportPhotoVideo:
         args.video_target = target_vid
         args.dry_run = True
         args.move = False
-        args.geocoding = "off"
+
         args.interactive = False
         args.exclude = []
         args.exclude_dir = []
@@ -186,7 +186,7 @@ class TestImportPhotoVideo:
         args.video_target = target_vid
         args.dry_run = False
         args.move = False
-        args.geocoding = "off"
+
         args.interactive = False
         args.exclude = []
         args.exclude_dir = []
@@ -230,7 +230,7 @@ class TestImportPhotoVideo:
         args.video_target = target_vid
         args.dry_run = False
         args.move = True
-        args.geocoding = "off"
+
         args.interactive = False
         args.exclude = []
         args.exclude_dir = []
@@ -277,7 +277,7 @@ class TestImportPhotoVideo:
         args.video_target = target_vid
         args.dry_run = False
         args.move = False
-        args.geocoding = "off"
+
         args.interactive = False
         args.exclude = []
         args.exclude_dir = []
@@ -313,7 +313,7 @@ class TestBatchImport:
         args.audio_target = tmp_path / "musik"
         args.dry_run = False
         args.move = False
-        args.geocoding = "off"
+
         args.interactive = False
         args.identify = False
         args.acoustid_key = None
@@ -492,7 +492,7 @@ class TestImportAudio:
         args.audio_target = tmp_path / "musik"
         args.dry_run = False
         args.move = False
-        args.geocoding = "off"
+
         args.interactive = False
         args.identify = False
         args.acoustid_key = None
@@ -724,7 +724,7 @@ class TestProgressLogging:
         args.audio_target = tmp_path / "musik"
         args.dry_run = False
         args.move = False
-        args.geocoding = "off"
+
         args.interactive = False
         args.identify = False
         args.acoustid_key = None
@@ -908,7 +908,7 @@ class TestDryRunGrouped:
         args.audio_target = tmp_path / "musik"
         args.dry_run = True
         args.move = False
-        args.geocoding = "off"
+
         args.interactive = False
         args.identify = False
         args.acoustid_key = None
@@ -1044,7 +1044,7 @@ class TestInteractiveBatch:
         args.audio_target = tmp_path / "musik"
         args.dry_run = False
         args.move = False
-        args.geocoding = "off"
+
         args.interactive = True
         args.identify = False
         args.acoustid_key = None
@@ -1230,7 +1230,7 @@ class TestImportExclude:
         args.audio_target = tmp_path / "musik"
         args.dry_run = True
         args.move = False
-        args.geocoding = "off"
+
         args.interactive = False
         args.identify = False
         args.acoustid_key = None
@@ -1352,7 +1352,7 @@ class TestImportSourcePath:
         args.audio_target = tmp_path / "musik"
         args.dry_run = False
         args.move = False
-        args.geocoding = "off"
+
         args.interactive = False
         args.identify = False
         args.acoustid_key = None
@@ -1529,7 +1529,7 @@ class TestImportEdgeCases:
         args.audio_target = tmp_path / "musik"
         args.dry_run = False
         args.move = False
-        args.geocoding = "off"
+
         args.interactive = False
         args.identify = False
         args.acoustid_key = None
@@ -1691,7 +1691,7 @@ class TestImportEdgeCases:
         args.audio_target = target_aud
         args.dry_run = True
         args.move = False
-        args.geocoding = "off"
+
         args.interactive = False
         args.exclude = []
         args.exclude_dir = []
@@ -1805,7 +1805,7 @@ class TestFailureLogging:
         args.audio_target = tmp_path / "musik"
         args.dry_run = False
         args.move = False
-        args.geocoding = "off"
+
         args.interactive = False
         args.exclude = []
         args.exclude_dir = []

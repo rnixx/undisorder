@@ -30,7 +30,6 @@ class TestLoadConfig:
             'images_target = "/img"',
             'video_target = "/vid"',
             'audio_target = "/aud"',
-            'geocoding = "offline"',
             "dry_run = true",
             "move = true",
             "update = true",
@@ -43,7 +42,7 @@ class TestLoadConfig:
         ])
         (tmp_path / CONFIG_FILENAME).write_text(toml)
         cfg = load_config(tmp_path)
-        assert len(cfg) == 13
+        assert len(cfg) == 12
 
     def test_ignores_unknown_keys(self, tmp_path):
         (tmp_path / CONFIG_FILENAME).write_text('unknown_key = "value"\n')
@@ -80,7 +79,7 @@ class TestMergeConfigIntoArgs:
     def _make_args(self, **kwargs):
         defaults = dict(
             images_target=None, video_target=None, audio_target=None,
-            dry_run=None, move=None, geocoding=None,
+            dry_run=None, move=None,
             interactive=None, identify=None, select=None, update=None,
             exclude=None, exclude_dir=None, acoustid_key=None,
         )
@@ -115,7 +114,6 @@ class TestMergeConfigIntoArgs:
         assert args.audio_target == pathlib.Path("~/Musik").expanduser()
         assert args.dry_run is False
         assert args.move is False
-        assert args.geocoding == "off"
         assert args.interactive is False
         assert args.identify is False
         assert args.select is False
@@ -135,12 +133,6 @@ class TestMergeConfigIntoArgs:
         merge_config_into_args(args, {"exclude": ["*.aiff", "*.wav"]})
         assert args.exclude == ["*.aiff", "*.wav"]
 
-    def test_geocoding_invalid_in_config_uses_default(self):
-        args = self._make_args()
-        merge_config_into_args(args, {"geocoding": "invalid"})
-        assert args.geocoding == "off"
-
-
 class TestCreateConfigInteractive:
     """Test interactive config creation."""
 
@@ -157,7 +149,6 @@ class TestCreateConfigInteractive:
             "images_target": "/my/photos",
             "video_target": "/my/videos",
             "audio_target": "/my/music",
-            "geocoding": "offline",
             "acoustid_key": "my-api-key",
         }
 
@@ -174,7 +165,6 @@ class TestCreateConfigInteractive:
         assert cfg["images_target"] == "/my/photos"
         assert cfg["video_target"] == "/my/videos"
         assert cfg["audio_target"] == "/my/music"
-        assert cfg["geocoding"] == "offline"
         assert cfg["acoustid_key"] == "my-api-key"
 
     def test_skip_empty_input_uses_default(self, tmp_path):
