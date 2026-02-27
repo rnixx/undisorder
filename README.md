@@ -10,7 +10,7 @@ Photo/Video/Audio organization tool — deduplicates, sorts by date/topic/artist
 - **Photo + Video support**: Handles all common formats (JPEG, PNG, HEIC, RAW, MP4, MOV, MKV, ...)
 - **Audio support**: Organizes by Artist/Album using embedded tags (ID3, Vorbis, MP4 atoms) via mutagen
 - **Audio identification**: AcoustID fingerprinting + MusicBrainz lookup for untagged audio files
-- **SQLite hash index**: Tracks imported files to avoid re-importing duplicates across runs
+- **SQLite hash index**: Tracks `original_hash` (from source at import time) and `current_hash` (updated on rebuild) to handle dedup even after external metadata edits
 - **Exclude patterns**: Filter out files or directories by glob pattern (e.g. DAW project folders, WAV samples)
 - **Interactive selection**: Review and accept/skip directories before importing
 - **Dry-run mode**: Preview what would happen before committing
@@ -95,9 +95,6 @@ undisorder import /path/to/unsorted-media \
 # Move files instead of copying
 undisorder import /path/to/unsorted-media --move
 
-# Re-import files when source is newer than previous import
-undisorder import /path/to/unsorted-media --update
-
 # Full workflow: select folders, identify audio, confirm names
 undisorder import /path/to/unsorted-media \
     --select \
@@ -147,7 +144,7 @@ Get a free AcoustID API key at https://acoustid.org/new-application.
 undisorder hashdb ~/Bilder/Fotos
 ```
 
-Useful after manually adding/removing files from the target.
+Performs an incremental rebuild: updates `current_hash` for known files, adds new files, removes records for deleted files. Run this after editing metadata on imported files (e.g. tagging in Digikam) or after manually adding/removing files.
 
 ### Verbosity
 
@@ -245,7 +242,7 @@ Import processes files **one source directory at a time** (deepest first), in ba
 3. **Per-directory batch**:
    - **Metadata**: Extract EXIF dates via `exiftool`
    - **Hash**: SHA256 hash each file
-   - **Check target**: Compare hashes against central SQLite index — skip already-imported files
+   - **Dedup**: Check `original_hash` against central SQLite index — skip already-imported content
    - **Organize**: Determine target path using metadata + intelligent naming
    - **Execute**: Copy/move files, update hash index
 
@@ -259,14 +256,14 @@ Same per-directory processing, in batches of up to 10 files (smaller batches due
 4. **Identify** (optional): For files with missing tags, fingerprint via AcoustID and look up metadata on MusicBrainz
 5. **Per-directory batch**:
    - **Hash**: SHA256 hash each file
-   - **Check target**: Skip already-imported files
+   - **Dedup**: Skip already-imported content
    - **Organize**: Place in `Artist/Album/NN_Title.ext` structure
    - **Execute**: Copy/move files, update hash index
 
 ## Database Architecture (HashDB)
 
 Central SQLite database at `~/.config/undisorder/undisorder.db` (or `$XDG_CONFIG_HOME/undisorder/undisorder.db`).
-Each `HashDB` instance stores a `target_dir` (resolved path) — it is passed as an informational column on `insert` and `record_import`.
+Each `HashDB` instance stores a `target_dir` (resolved path) — it is passed as an informational column on `insert`.
 A SHA256 hash uniquely identifies a file globally (collisions at typical collection sizes are practically impossible at ~10^-68).
 
 ### Tables
@@ -275,36 +272,20 @@ A SHA256 hash uniquely identifies a file globally (collisions at typical collect
 
 ```sql
 CREATE TABLE files (
-    hash        TEXT PRIMARY KEY,   -- SHA256 of file content
-    target_dir  TEXT NOT NULL,      -- informational
-    file_size   INTEGER NOT NULL,
-    file_path   TEXT NOT NULL,      -- relative path within target_dir
-    date_taken  TEXT,
-    import_date TEXT NOT NULL,
-    source_path TEXT
+    original_hash TEXT PRIMARY KEY,  -- SHA256 of source file at import time
+    current_hash  TEXT NOT NULL,     -- SHA256 of target file (updated on rebuild)
+    target_dir    TEXT NOT NULL,     -- informational
+    file_path     TEXT NOT NULL,     -- relative path within target_dir
+    import_date   TEXT NOT NULL
 );
 CREATE INDEX idx_target ON files(target_dir);
+CREATE INDEX idx_file_path ON files(file_path, target_dir);
 ```
 
-- PK: `hash` alone — byte-identical files are stored only once.
-- `target_dir` is informational (which target the file belongs to).
-- `source_path` is optional — absent during `rebuild`.
-
-#### `imports` — What has already been imported?
-
-```sql
-CREATE TABLE imports (
-    source_path TEXT PRIMARY KEY,   -- absolute path of the source file
-    target_dir  TEXT NOT NULL,      -- informational
-    hash        TEXT NOT NULL,      -- SHA256 at time of import
-    file_path   TEXT                -- relative target path (may be NULL)
-);
-```
-
-- PK: `source_path` alone — a source path is imported only once.
-- Protects against re-import after metadata edits (EXIF tagging etc.),
-  where the hash changes but the source path stays the same.
-- `hash` is updated on `--update` (`update_import`).
+- PK: `original_hash` — the hash of the source file at import time.
+- `current_hash` tracks the target file's state after external edits (e.g. Digikam tagging).
+- Import dedup checks only `original_hash` — re-importing the same source content is always skipped, even if the target file was later edited.
+- `rebuild` updates `current_hash` from disk without changing `original_hash`.
 
 #### `acoustid_cache` — AcoustID results
 
@@ -329,34 +310,31 @@ CREATE TABLE acoustid_cache (
 Practically impossible. 256-bit output space (2^256), no known collision
 attack. Can be treated as unique for deduplication purposes.
 
-### Dedup Queries During Import
+### Dedup Check During Import
 
-Two-stage check per file, in this order:
+Single-stage check per file:
 
-**Stage 1 — Hash check** (`hash_exists`):
 ```sql
-SELECT 1 FROM files WHERE hash = ?
+SELECT 1 FROM files WHERE original_hash = ?
 ```
-Identical file content already in target -> skip.
-
-**Stage 2 — Source path check** (`get_import`):
-```sql
-SELECT * FROM imports WHERE source_path = ?
-```
-Source path already imported -> skip. Exception: `--update` and source mtime
-newer than target mtime -> file is overwritten.
+Source file content already imported -> skip.
 
 ### Write Timing
 
 | Event | Table | Method |
 |-------|-------|--------|
 | After copy/move of a new file | `files` | `insert()` |
-| Immediately after | `imports` | `record_import()` |
-| On update (source newer) | `files` | `delete_by_hash()` + `insert()` |
-| Immediately after | `imports` | `update_import()` |
 | After AcoustID lookup | `acoustid_cache` | `store_acoustid_cache()` (via `identify_audio`) |
 
 Every write commits immediately — no batch commits.
+
+### Rebuild
+
+`undisorder hashdb <target>` performs an incremental rebuild:
+
+1. **Known file_path** (already in DB) → update `current_hash` from disk
+2. **Unknown file_path** (new file on disk) → insert with `original_hash = current_hash = disk_hash`
+3. **Missing file** (DB record but no file on disk) → delete record
 
 ### Source Tree Duplicate Search (`dupes`)
 
@@ -383,12 +361,10 @@ import or `dupes`.
 
 ### Metadata Editing
 
-**Important:** Hashes are computed over the entire file content. If you later edit metadata on imported files — e.g. tagging photos in Digikam, editing ID3 tags in an audio player, or writing EXIF data with exiftool — the file content changes and the stored hash no longer matches the file on disk. This means:
+Hashes are computed over the entire file content. If you later edit metadata on imported files — e.g. tagging photos in Digikam, editing ID3 tags in an audio player, or writing EXIF data with exiftool — the file content changes and `current_hash` no longer matches `original_hash`. This is expected and handled:
 
-- `undisorder hashdb` (rebuild) will recompute correct hashes from the current file content
-- Re-importing the same source files is safe as long as the source hasn't changed, because the DB also stores source paths
-
-If you routinely edit metadata on imported files, run `undisorder hashdb <target>` afterwards to keep the index in sync.
+- **Re-importing the same source is safe**: Import dedup checks `original_hash` (the hash at import time), so editing the target file does not cause re-imports.
+- **Run `undisorder hashdb <target>` after editing**: This updates `current_hash` to match the file on disk, keeping the index in sync.
 
 ## Contributing
 
