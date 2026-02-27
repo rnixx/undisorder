@@ -71,7 +71,7 @@ def group_by_directory(
     result: ScanResult, source_root: pathlib.Path,
 ) -> list[DirectoryGroup]:
     """Group all files by parent directory relative to source root."""
-    all_files = result.photos + result.videos + result.audios + result.unknown
+    all_files = result.all_files
     if not all_files:
         return []
 

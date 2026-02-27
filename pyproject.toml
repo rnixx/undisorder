@@ -10,10 +10,6 @@ readme = "README.md"
 license = "GPL-2.0-only"
 requires-python = ">=3.11"
 dependencies = [
-    "pyexiftool>=0.5",
-    "reverse_geocode>=1.0",
-    "geopy>=2.4",
-    "tqdm>=4.66",
     "mutagen>=1.47",
     "musicbrainzngs>=0.7",
     "pyacoustid>=1.3",

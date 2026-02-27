@@ -10,6 +10,7 @@ from undisorder.hasher import find_duplicates
 from undisorder.importer import run_import
 from undisorder.logging import configure_logging
 from undisorder.scanner import scan
+from undisorder.selector import format_size
 
 import argparse
 import logging
@@ -107,13 +108,6 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _human_size(n: int | float) -> str:
-    for unit in ("B", "KB", "MB", "GB", "TB"):
-        if abs(n) < 1024:
-            return f"{n:.1f} {unit}" if unit != "B" else f"{n} B"
-        n /= 1024
-    return f"{n:.1f} PB"
-
 
 def cmd_dupes(args: argparse.Namespace) -> None:
     """Find duplicates in a source directory."""
@@ -143,7 +137,7 @@ def cmd_dupes(args: argparse.Namespace) -> None:
     deleted_count = 0
     freed_bytes = 0
     for i, group in enumerate(groups, 1):
-        logger.info(f"  Group {i} ({len(group.paths)} files, {_human_size(group.file_size)}):")
+        logger.info(f"  Group {i} ({len(group.paths)} files, {format_size(group.file_size)}):")
         for p in group.paths:
             logger.info(f"    {p}")
         logger.info("")
@@ -160,9 +154,9 @@ def cmd_dupes(args: argparse.Namespace) -> None:
                 deleted_count += 1
                 freed_bytes += group.file_size
 
-    logger.info(f"{total_dupes} duplicate file(s), {_human_size(wasted_bytes)} wasted")
+    logger.info(f"{total_dupes} duplicate file(s), {format_size(wasted_bytes)} wasted")
     if args.delete:
-        logger.info(f"Deleted {deleted_count} file(s), freed {_human_size(freed_bytes)}")
+        logger.info(f"Deleted {deleted_count} file(s), freed {format_size(freed_bytes)}")
 
 
 def cmd_hashdb(args: argparse.Namespace) -> None:

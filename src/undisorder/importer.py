@@ -107,7 +107,8 @@ def _import_photo_video_batch(
     to_import: list[tuple[pathlib.Path, str, bool]] = []
 
     for i, f in enumerate(batch, 1):
-        logger.info(f"  [{i}/{len(batch)}] {f.name}")
+        if not args.dry_run:
+            logger.info(f"  [{i}/{len(batch)}] {f.name}")
         h = hash_file(f)
         is_video = classify(f) is FileType.VIDEO
         db = vid_db if is_video else img_db
@@ -164,11 +165,61 @@ def _import_photo_video_batch(
     return imported, skipped
 
 
-def _import_photo_video(args: argparse.Namespace, result) -> int:
-    """Import photo/video files from source into the organized collection.
+def _run_batch_pipeline(
+    files: list[pathlib.Path],
+    args: argparse.Namespace,
+    *,
+    media_label: str,
+    failure_label: str,
+    batch_size: int,
+    batch_fn: object,
+) -> int:
+    """Shared batch loop: group → iterate → try/except → summary.
 
+    batch_fn(batch) returns (imported, skipped).
     Returns the number of failed batches.
     """
+    dir_groups = _group_by_source_dir(files, args.source)
+    total_imported = 0
+    total_skipped = 0
+    total_failures = 0
+
+    if args.dry_run:
+        logger.info(f"\n[DRY RUN] Importing {media_label} file(s) ...\n")
+
+    batches = _iter_batches(dir_groups, batch_size=batch_size)
+    total_batches = len(batches)
+    for batch_idx, (rel_dir, batch) in enumerate(batches, 1):
+        n = len(batch)
+        label = "file" if n == 1 else "files"
+        logger.info(f"Processing {media_label} {batch_idx}/{total_batches}: {rel_dir}/ ({n} {label})")
+        try:
+            imported, skipped = batch_fn(batch)
+            total_imported += imported
+            total_skipped += skipped
+        except Exception as exc:
+            logger.exception(f"Error importing {rel_dir}, skipping")
+            _log_failure(rel_dir, failure_label, batch, exc)
+            total_failures += 1
+
+    if total_skipped:
+        logger.info(f"\nSkipping {total_skipped} {media_label} file(s) already present in target.")
+    if args.dry_run:
+        if total_imported:
+            logger.info(f"\n[DRY RUN] Would import {total_imported} {media_label} file(s).")
+        else:
+            logger.info(f"No {media_label} files to import.")
+    else:
+        if total_imported:
+            logger.info(f"\nImported {total_imported} {media_label} file(s).")
+        elif not total_skipped:
+            logger.info(f"No {media_label} files to import.")
+
+    return total_failures
+
+
+def _import_photo_video(args: argparse.Namespace, result) -> int:
+    """Import photo/video files from source into the organized collection."""
     media_files = result.photos + result.videos
     if not media_files:
         return 0
@@ -181,48 +232,17 @@ def _import_photo_video(args: argparse.Namespace, result) -> int:
     img_db = HashDB(args.images_target)
     vid_db = HashDB(args.video_target)
 
-    dir_groups = _group_by_source_dir(media_files, args.source)
-    total_imported = 0
-    total_skipped = 0
-    total_failures = 0
-
-    if args.dry_run:
-        logger.info("\n[DRY RUN] Importing photo/video file(s) ...\n")
-
-    batches = _iter_batches(dir_groups, batch_size=100)
-    total_batches = len(batches)
-    for batch_idx, (rel_dir, batch) in enumerate(batches, 1):
-        n = len(batch)
-        label = "file" if n == 1 else "files"
-        logger.info(f"Processing photo/video {batch_idx}/{total_batches}: {rel_dir}/ ({n} {label})")
-        try:
-            imported, skipped = _import_photo_video_batch(
-                batch, args, img_db, vid_db,
-            )
-            total_imported += imported
-            total_skipped += skipped
-        except Exception as exc:
-            logger.exception(f"Error importing {rel_dir}, skipping")
-            _log_failure(rel_dir, "photo_video", batch, exc)
-            total_failures += 1
+    failures = _run_batch_pipeline(
+        media_files, args,
+        media_label="photo/video",
+        failure_label="photo_video",
+        batch_size=100,
+        batch_fn=lambda batch: _import_photo_video_batch(batch, args, img_db, vid_db),
+    )
 
     img_db.close()
     vid_db.close()
-
-    if total_skipped:
-        logger.info(f"\nSkipping {total_skipped} photo/video file(s) already present in target.")
-    if args.dry_run:
-        if total_imported:
-            logger.info(f"\n[DRY RUN] Would import {total_imported} photo/video file(s).")
-        else:
-            logger.info("Nothing to import.")
-    else:
-        if total_imported:
-            logger.info(f"\nImported {total_imported} photo/video file(s).")
-        elif not total_skipped:
-            logger.info("Nothing to import.")
-
-    return total_failures
+    return failures
 
 
 def _import_audio_batch(
@@ -260,7 +280,7 @@ def _import_audio_batch(
             )
             if audio_meta_map[f] is not original:
                 identified.add(f)
-        else:
+        elif not args.dry_run:
             logger.info(f"  [{i}/{len(batch)}] {f.name}")
 
         if aud_db.hash_exists(h):
@@ -323,10 +343,7 @@ def _import_audio_batch(
 
 
 def _import_audio(args: argparse.Namespace, result) -> int:
-    """Import audio files from source into the organized collection.
-
-    Returns the number of failed batches.
-    """
+    """Import audio files from source into the organized collection."""
     audio_files = result.audios
     if not audio_files:
         return 0
@@ -346,47 +363,16 @@ def _import_audio(args: argparse.Namespace, result) -> int:
         args.audio_target.mkdir(parents=True, exist_ok=True)
     aud_db = HashDB(args.audio_target)
 
-    dir_groups = _group_by_source_dir(audio_files, args.source)
-    total_imported = 0
-    total_skipped = 0
-    total_failures = 0
-
-    if args.dry_run:
-        logger.info("\n[DRY RUN] Importing audio file(s) ...\n")
-
-    batches = _iter_batches(dir_groups, batch_size=10)
-    total_batches = len(batches)
-    for batch_idx, (rel_dir, batch) in enumerate(batches, 1):
-        n = len(batch)
-        label = "file" if n == 1 else "files"
-        logger.info(f"Processing audio {batch_idx}/{total_batches}: {rel_dir}/ ({n} {label})")
-        try:
-            imported, skipped = _import_audio_batch(
-                batch, args, aud_db, acoustid_key=acoustid_key,
-            )
-            total_imported += imported
-            total_skipped += skipped
-        except Exception as exc:
-            logger.exception(f"Error importing audio {rel_dir}, skipping")
-            _log_failure(rel_dir, "audio", batch, exc)
-            total_failures += 1
+    failures = _run_batch_pipeline(
+        audio_files, args,
+        media_label="audio",
+        failure_label="audio",
+        batch_size=10,
+        batch_fn=lambda batch: _import_audio_batch(batch, args, aud_db, acoustid_key=acoustid_key),
+    )
 
     aud_db.close()
-
-    if total_skipped:
-        logger.info(f"\nSkipping {total_skipped} audio file(s) already present in target.")
-    if args.dry_run:
-        if total_imported:
-            logger.info(f"\n[DRY RUN] Would import {total_imported} audio file(s).")
-        else:
-            logger.info("No audio files to import.")
-    else:
-        if total_imported:
-            logger.info(f"\nImported {total_imported} audio file(s).")
-        elif not total_skipped:
-            logger.info("No audio files to import.")
-
-    return total_failures
+    return failures
 
 
 def run_import(args: argparse.Namespace) -> None:
