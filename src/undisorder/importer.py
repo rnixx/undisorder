@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from undisorder.audio_metadata import AudioMetadata
 from undisorder.audio_metadata import extract_audio_batch
+from undisorder.audio_metadata import write_audio_tags
 from undisorder.config import _config_dir
 from undisorder.hashdb import HashDB
 from undisorder.hasher import hash_file
@@ -11,7 +12,6 @@ from undisorder.metadata import extract_batch
 from undisorder.metadata import Metadata
 from undisorder.musicbrainz import identify_audio
 from undisorder.organizer import determine_audio_target_path
-from undisorder.organizer import determine_target_path
 from undisorder.organizer import resolve_collision
 from undisorder.organizer import suggest_dirname
 from undisorder.scanner import classify
@@ -186,14 +186,8 @@ def _import_photo_video_batch(
                     imported += 1
         else:
             for src_path, file_hash, is_video, dirname in resolved:
-                meta = metadata_map.get(src_path, Metadata(source_path=src_path))
-                target_path = determine_target_path(
-                    meta=meta,
-                    images_target=args.images_target,
-                    video_target=args.video_target,
-                    is_video=is_video,
-                    source_root=args.source,
-                )
+                target_base = args.video_target if is_video else args.images_target
+                target_path = target_base / dirname / src_path.name
                 target_path = resolve_collision(target_path)
 
                 target_path.parent.mkdir(parents=True, exist_ok=True)
@@ -203,7 +197,6 @@ def _import_photo_video_batch(
                     shutil.copy2(str(src_path), str(target_path))
 
                 db = vid_db if is_video else img_db
-                target_base = args.video_target if is_video else args.images_target
                 rel_path = target_path.relative_to(target_base)
                 db.insert(
                     original_hash=file_hash,
@@ -347,9 +340,15 @@ def _import_audio_batch(
             else:
                 shutil.copy2(str(src_path), str(target_path))
 
+            current_hash = file_hash
+            if acoustid_key and meta.artist:
+                write_audio_tags(target_path, meta)
+                current_hash = hash_file(target_path)
+
             rel_path = target_path.relative_to(args.audio_target)
             aud_db.insert(
                 original_hash=file_hash,
+                current_hash=current_hash,
                 file_path=str(rel_path),
             )
             imported += 1

@@ -78,6 +78,28 @@ def extract_audio(path: pathlib.Path) -> AudioMetadata:
     return meta
 
 
+def write_audio_tags(path: pathlib.Path, meta: AudioMetadata) -> None:
+    """Write metadata tags to an audio file using mutagen."""
+    tags = mutagen.File(path, easy=True)
+    if tags is None:
+        return
+    if meta.artist:
+        tags["artist"] = meta.artist
+    if meta.album:
+        tags["album"] = meta.album
+    if meta.title:
+        tags["title"] = meta.title
+    if meta.track_number is not None:
+        tags["tracknumber"] = str(meta.track_number)
+    if meta.disc_number is not None:
+        tags["discnumber"] = str(meta.disc_number)
+    if meta.year is not None:
+        tags["date"] = str(meta.year)
+    if meta.genre:
+        tags["genre"] = meta.genre
+    tags.save()
+
+
 def extract_audio_batch(paths: list[pathlib.Path]) -> dict[pathlib.Path, AudioMetadata]:
     """Extract metadata from multiple audio files."""
     if not paths:

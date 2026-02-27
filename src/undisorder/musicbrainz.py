@@ -112,7 +112,7 @@ def identify_audio(
 ) -> AudioMetadata:
     """Identify an audio file: if tags are incomplete, try AcoustID + MusicBrainz.
 
-    Merges results, preserving existing tag data over lookup data.
+    Merges results, preferring lookup data over existing tags.
     Uses cache (via db) when file_hash is provided.
     """
     if api_key is None:
@@ -133,12 +133,12 @@ def identify_audio(
             )
             return AudioMetadata(
                 source_path=existing_meta.source_path,
-                artist=existing_meta.artist or lookup_meta.artist,
-                album=existing_meta.album or lookup_meta.album,
-                title=existing_meta.title or lookup_meta.title,
-                track_number=existing_meta.track_number or lookup_meta.track_number,
-                disc_number=existing_meta.disc_number or lookup_meta.disc_number,
-                year=existing_meta.year or lookup_meta.year,
+                artist=lookup_meta.artist or existing_meta.artist,
+                album=lookup_meta.album or existing_meta.album,
+                title=lookup_meta.title or existing_meta.title,
+                track_number=lookup_meta.track_number or existing_meta.track_number,
+                disc_number=lookup_meta.disc_number or existing_meta.disc_number,
+                year=lookup_meta.year or existing_meta.year,
                 genre=existing_meta.genre,
             )
 
@@ -182,11 +182,11 @@ def identify_audio(
 
     return AudioMetadata(
         source_path=existing_meta.source_path,
-        artist=existing_meta.artist or lookup_meta.artist,
-        album=existing_meta.album or lookup_meta.album,
-        title=existing_meta.title or lookup_meta.title,
-        track_number=existing_meta.track_number or lookup_meta.track_number,
-        disc_number=existing_meta.disc_number or lookup_meta.disc_number,
-        year=existing_meta.year or lookup_meta.year,
+        artist=lookup_meta.artist or existing_meta.artist,
+        album=lookup_meta.album or existing_meta.album,
+        title=lookup_meta.title or existing_meta.title,
+        track_number=lookup_meta.track_number or existing_meta.track_number,
+        disc_number=lookup_meta.disc_number or existing_meta.disc_number,
+        year=lookup_meta.year or existing_meta.year,
         genre=existing_meta.genre,
     )

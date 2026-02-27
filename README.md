@@ -9,7 +9,7 @@ Photo/Video/Audio organization tool — deduplicates, sorts by date/topic/artist
 - **Intelligent directory naming**: Uses EXIF dates and meaningful source folder names to create folder structures like `2024/2024-03_Urlaub/`
 - **Photo + Video support**: Handles all common formats (JPEG, PNG, HEIC, RAW, MP4, MOV, MKV, ...)
 - **Audio support**: Organizes by Artist/Album using embedded tags (ID3, Vorbis, MP4 atoms) via mutagen
-- **Audio identification**: AcoustID fingerprinting + MusicBrainz lookup for untagged audio files
+- **Audio identification**: AcoustID fingerprinting + MusicBrainz lookup — overwrites existing tags with lookup data and writes improved tags into the target file
 - **SQLite hash index**: Tracks `original_hash` (from source at import time) and `current_hash` (updated on rebuild) to handle dedup even after external metadata edits
 - **Exclude patterns**: Filter out files or directories by glob pattern (e.g. DAW project folders, WAV samples)
 - **Interactive selection**: Review and accept/skip directories before importing
@@ -125,7 +125,7 @@ Patterns are case-insensitive and use glob syntax. `--exclude` matches filenames
 
 ### Import audio with AcoustID identification
 
-For audio files with missing or incomplete tags, use AcoustID to identify them:
+For audio files with missing or inaccurate tags, use AcoustID to identify them. Lookup data from MusicBrainz **overwrites** existing tags (falling back to existing data only when a lookup field is empty). The improved tags are written into the target file after copy/move:
 
 ```bash
 undisorder import /path/to/music --identify
@@ -253,17 +253,19 @@ Same per-directory processing, in batches of up to 10 files (smaller batches due
 1. **Scan**: Identify audio files by extension (MP3, FLAC, OGG, M4A, WAV, ...)
 2. **Filter**: Same exclude/select filtering as photos/videos
 3. **Tags**: Read embedded tags (artist, album, title, track number) via mutagen
-4. **Identify** (optional): For files with missing tags, fingerprint via AcoustID and look up metadata on MusicBrainz
+4. **Identify** (optional): Fingerprint via AcoustID, look up metadata on MusicBrainz. Lookup data overwrites existing tags (falls back to existing when lookup field is empty).
 5. **Per-directory batch**:
    - **Hash**: SHA256 hash each file
    - **Dedup**: Skip already-imported content
    - **Organize**: Place in `Artist/Album/NN_Title.ext` structure
-   - **Execute**: Copy/move files, update hash index
+   - **Execute**: Copy/move files to target
+   - **Write tags** (with `--identify`): Write improved metadata into the target file, then compute `current_hash` from the modified target (so `current_hash ≠ original_hash`)
+   - **Index**: Update hash index
 
 ## Database Architecture (HashDB)
 
 Central SQLite database at `~/.config/undisorder/undisorder.db` (or `$XDG_CONFIG_HOME/undisorder/undisorder.db`).
-Each `HashDB` instance stores a `target_dir` (resolved path) — it is passed as an informational column on `insert`.
+Each `HashDB` instance is bound to a `target_dir` (resolved path) which scopes queries like `count()`, `delete_by_path()`, and `rebuild()`.
 A SHA256 hash uniquely identifies a file globally (collisions at typical collection sizes are practically impossible at ~10^-68).
 
 ### Tables
@@ -363,6 +365,7 @@ import or `dupes`.
 
 Hashes are computed over the entire file content. If you later edit metadata on imported files — e.g. tagging photos in Digikam, editing ID3 tags in an audio player, or writing EXIF data with exiftool — the file content changes and `current_hash` no longer matches `original_hash`. This is expected and handled:
 
+- **`--identify` sets `current_hash` automatically**: When importing audio with `--identify`, improved tags are written to the target file. The index stores the original source hash as `original_hash` and the hash of the tag-modified target as `current_hash`.
 - **Re-importing the same source is safe**: Import dedup checks `original_hash` (the hash at import time), so editing the target file does not cause re-imports.
 - **Run `undisorder hashdb <target>` after editing**: This updates `current_hash` to match the file on disk, keeping the index in sync.
 

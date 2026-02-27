@@ -117,21 +117,6 @@ def _sanitize_path_component(name: str) -> str:
     return name.strip()
 
 
-def determine_target_path(
-    *,
-    meta: Metadata,
-    images_target: pathlib.Path,
-    video_target: pathlib.Path,
-    is_video: bool,
-    source_root: pathlib.Path | None = None,
-) -> pathlib.Path:
-    """Determine the full target path for a file."""
-    base_target = video_target if is_video else images_target
-    dirname = suggest_dirname(meta, source_root=source_root)
-    filename = meta.source_path.name
-    return base_target / dirname / filename
-
-
 def determine_audio_target_path(
     meta: AudioMetadata,
     audio_target: pathlib.Path,
@@ -145,9 +130,12 @@ def determine_audio_target_path(
 
     ext = meta.source_path.suffix
 
-    if meta.track_number is not None and meta.title is not None:
+    if meta.title is not None:
         title = _sanitize_path_component(meta.title)
-        filename = f"{meta.track_number:02d}_{title}{ext}"
+        if meta.track_number is not None:
+            filename = f"{meta.track_number:02d}_{title}{ext}"
+        else:
+            filename = f"{title}{ext}"
     else:
         filename = meta.source_path.name
 

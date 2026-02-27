@@ -4,7 +4,6 @@ from undisorder.audio_metadata import AudioMetadata
 from undisorder.metadata import Metadata
 from undisorder.organizer import _get_meaningful_source_dir
 from undisorder.organizer import determine_audio_target_path
-from undisorder.organizer import determine_target_path
 from undisorder.organizer import is_meaningful_dirname
 from undisorder.organizer import resolve_collision
 from undisorder.organizer import suggest_dirname
@@ -166,49 +165,6 @@ class TestResolveCollision:
         assert result.stem == "video_1"
 
 
-class TestDetermineTargetPath:
-    """Test full target path determination."""
-
-    def test_photo_goes_to_images_target(self, tmp_path: pathlib.Path):
-        meta = Metadata(
-            source_path=pathlib.Path("/source/photo.jpg"),
-            date_taken=datetime.datetime(2024, 3, 15),
-        )
-        result = determine_target_path(
-            meta=meta,
-            images_target=tmp_path / "Fotos",
-            video_target=tmp_path / "Videos",
-            is_video=False,
-        )
-        assert str(result).startswith(str(tmp_path / "Fotos"))
-
-    def test_video_goes_to_video_target(self, tmp_path: pathlib.Path):
-        meta = Metadata(
-            source_path=pathlib.Path("/source/clip.mp4"),
-            date_taken=datetime.datetime(2024, 3, 15),
-        )
-        result = determine_target_path(
-            meta=meta,
-            images_target=tmp_path / "Fotos",
-            video_target=tmp_path / "Videos",
-            is_video=True,
-        )
-        assert str(result).startswith(str(tmp_path / "Videos"))
-
-    def test_includes_original_filename(self, tmp_path: pathlib.Path):
-        meta = Metadata(
-            source_path=pathlib.Path("/source/DSC_1234.jpg"),
-            date_taken=datetime.datetime(2024, 3, 15),
-        )
-        result = determine_target_path(
-            meta=meta,
-            images_target=tmp_path / "Fotos",
-            video_target=tmp_path / "Videos",
-            is_video=False,
-        )
-        assert result.name == "DSC_1234.jpg"
-
-
 class TestDetermineAudioTargetPath:
     """Test audio file target path determination."""
 
@@ -256,7 +212,7 @@ class TestDetermineAudioTargetPath:
         result = determine_audio_target_path(meta, tmp_path / "Musik")
         assert "Unknown Album" in str(result)
 
-    def test_no_track_number_keeps_original_name(self, tmp_path: pathlib.Path):
+    def test_no_track_number_uses_title(self, tmp_path: pathlib.Path):
         meta = AudioMetadata(
             source_path=pathlib.Path("/source/song.mp3"),
             artist="Artist",
@@ -265,7 +221,7 @@ class TestDetermineAudioTargetPath:
             track_number=None,
         )
         result = determine_audio_target_path(meta, tmp_path / "Musik")
-        assert result.name == "song.mp3"
+        assert result.name == "Song.mp3"
 
     def test_no_title_keeps_original_name(self, tmp_path: pathlib.Path):
         meta = AudioMetadata(

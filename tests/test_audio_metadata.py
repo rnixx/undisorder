@@ -3,9 +3,11 @@
 from undisorder.audio_metadata import AudioMetadata
 from undisorder.audio_metadata import extract_audio
 from undisorder.audio_metadata import extract_audio_batch
+from undisorder.audio_metadata import write_audio_tags
 from unittest.mock import MagicMock
 from unittest.mock import patch
 
+import mutagen.mp3
 import pathlib
 
 
@@ -188,3 +190,78 @@ class TestExtractAudioBatch:
     def test_empty_list(self):
         results = extract_audio_batch([])
         assert results == {}
+
+
+def _create_mp3(path: pathlib.Path) -> None:
+    """Create a minimal valid MP3 file with ID3 tags using mutagen."""
+    # Valid MPEG1 Layer3 128kbps 44100Hz frame: header + zero-padded payload
+    # Frame size = 144 * 128000 / 44100 = 417 bytes
+    frame = b"\xff\xfb\x90\x04" + b"\x00" * 413
+    path.write_bytes(frame * 5)  # 5 frames so mutagen accepts it
+    tags = mutagen.mp3.MP3(path)
+    tags.add_tags()
+    tags.save()
+
+
+class TestWriteAudioTags:
+    """Test writing metadata tags to audio files."""
+
+    def test_writes_all_fields(self, tmp_path):
+        """All metadata fields are written and readable."""
+        mp3_path = tmp_path / "song.mp3"
+        _create_mp3(mp3_path)
+
+        meta = AudioMetadata(
+            source_path=mp3_path,
+            artist="The Beatles",
+            album="Abbey Road",
+            title="Come Together",
+            track_number=1,
+            disc_number=2,
+            year=1969,
+            genre="Rock",
+        )
+        write_audio_tags(mp3_path, meta)
+
+        result = extract_audio(mp3_path)
+        assert result.artist == "The Beatles"
+        assert result.album == "Abbey Road"
+        assert result.title == "Come Together"
+        assert result.track_number == 1
+        assert result.disc_number == 2
+        assert result.year == 1969
+        assert result.genre == "Rock"
+
+    def test_none_fields_not_written(self, tmp_path):
+        """None fields are skipped — existing tags remain untouched."""
+        mp3_path = tmp_path / "song.mp3"
+        _create_mp3(mp3_path)
+
+        # Write initial tags
+        initial = AudioMetadata(
+            source_path=mp3_path,
+            artist="Original Artist",
+            album="Original Album",
+        )
+        write_audio_tags(mp3_path, initial)
+
+        # Write partial update — only title, rest is None
+        partial = AudioMetadata(
+            source_path=mp3_path,
+            title="New Title",
+        )
+        write_audio_tags(mp3_path, partial)
+
+        result = extract_audio(mp3_path)
+        assert result.artist == "Original Artist"  # untouched
+        assert result.album == "Original Album"  # untouched
+        assert result.title == "New Title"  # written
+
+    def test_unreadable_file_is_noop(self, tmp_path):
+        """If mutagen can't open the file, write is silently skipped."""
+        bad_path = tmp_path / "not_audio.bin"
+        bad_path.write_bytes(b"not audio data")
+
+        meta = AudioMetadata(source_path=bad_path, artist="Artist")
+        # Should not raise
+        write_audio_tags(bad_path, meta)

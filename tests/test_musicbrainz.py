@@ -168,8 +168,8 @@ class TestIdentifyAudio:
         assert result.title == "Discovered Title"
         assert result.year == 2020
 
-    def test_preserves_existing_over_lookup(self):
-        """Existing tag data takes priority over lookup results."""
+    def test_lookup_wins_over_existing(self):
+        """Lookup data takes priority over existing tags."""
         existing = AudioMetadata(
             source_path=pathlib.Path("/fake/song.mp3"),
             artist="My Artist",
@@ -188,9 +188,35 @@ class TestIdentifyAudio:
             patch("undisorder.musicbrainz.lookup_musicbrainz", return_value=lookup_meta),
         ):
             result = identify_audio(pathlib.Path("/fake/song.mp3"), existing, api_key="key")
-        assert result.artist == "My Artist"  # preserved
+        assert result.artist == "Different Artist"  # lookup wins
         assert result.album == "Lookup Album"  # filled
         assert result.title == "Lookup Title"  # filled
+
+    def test_existing_wins_when_lookup_field_missing(self):
+        """When lookup field is None, existing tag data is used as fallback."""
+        existing = AudioMetadata(
+            source_path=pathlib.Path("/fake/song.mp3"),
+            artist="My Artist",
+            album="My Album",
+            title="My Title",
+            genre="Rock",
+        )
+        lookup_meta = AudioMetadata(
+            source_path=pathlib.Path("/fake/song.mp3"),
+            artist=None,
+            album=None,
+            title="Lookup Title",
+        )
+        with (
+            patch("undisorder.musicbrainz.fingerprint_audio", return_value=(240.0, "FP...")),
+            patch("undisorder.musicbrainz.lookup_acoustid", return_value="rec-id"),
+            patch("undisorder.musicbrainz.lookup_musicbrainz", return_value=lookup_meta),
+        ):
+            result = identify_audio(pathlib.Path("/fake/song.mp3"), existing, api_key="key")
+        assert result.artist == "My Artist"  # fallback to existing
+        assert result.album == "My Album"  # fallback to existing
+        assert result.title == "Lookup Title"  # lookup wins
+        assert result.genre == "Rock"  # always from existing
 
     def test_returns_existing_when_fingerprint_fails(self):
         existing = AudioMetadata(
@@ -276,8 +302,8 @@ class TestIdentifyAudioCache:
         assert result.year == 2020
         db.close()
 
-    def test_cache_hit_preserves_existing(self, tmp_path, tmp_target):
-        """Cached data doesn't overwrite existing tag data."""
+    def test_cache_hit_lookup_wins(self, tmp_path, tmp_target):
+        """Cached lookup data takes priority over existing tags."""
         db = HashDB(tmp_target, db_path=tmp_path / "test.db")
         db.store_acoustid_cache(
             file_hash="cached-hash",
@@ -297,8 +323,34 @@ class TestIdentifyAudioCache:
             pathlib.Path("/fake/song.mp3"), existing, api_key="key",
             file_hash="cached-hash", db=db,
         )
-        assert result.artist == "My Artist"  # preserved
+        assert result.artist == "Cached Artist"  # lookup wins
         assert result.album == "Cached Album"  # filled from cache
+        db.close()
+
+    def test_cache_hit_existing_wins_when_lookup_field_missing(self, tmp_path, tmp_target):
+        """When cached field is None, existing tag data is used as fallback."""
+        db = HashDB(tmp_target, db_path=tmp_path / "test.db")
+        db.store_acoustid_cache(
+            file_hash="cached-hash",
+            fingerprint="FP...",
+            duration=240.0,
+            recording_id="rec-cached",
+            metadata={"artist": None, "album": "Cached Album", "title": None},
+        )
+
+        existing = AudioMetadata(
+            source_path=pathlib.Path("/fake/song.mp3"),
+            artist="My Artist",
+            album="My Album",
+            title="My Title",
+        )
+        result = identify_audio(
+            pathlib.Path("/fake/song.mp3"), existing, api_key="key",
+            file_hash="cached-hash", db=db,
+        )
+        assert result.artist == "My Artist"  # fallback to existing
+        assert result.album == "Cached Album"  # lookup wins
+        assert result.title == "My Title"  # fallback to existing
         db.close()
 
     def test_cache_miss_stores_result(self, tmp_path, tmp_target):

@@ -661,6 +661,85 @@ class TestImportAudio:
         assert call_kwargs.kwargs.get("file_hash") is not None
         assert call_kwargs.kwargs.get("db") is not None
 
+    def test_identify_writes_tags_and_updates_current_hash(self, tmp_path: pathlib.Path):
+        """With --identify: write_audio_tags is called and db.insert gets current_hash != original_hash."""
+        source = tmp_path / "source"
+        source.mkdir()
+        (source / "song.mp3").write_bytes(b"\xff\xfb\x90\x00identifiable tags")
+
+        args = self._make_args(tmp_path, identify=True, acoustid_key="test-key")
+
+        audio_meta = AudioMetadata(
+            source_path=source / "song.mp3",
+            artist=None,
+            album=None,
+            title=None,
+        )
+        identified_meta = AudioMetadata(
+            source_path=source / "song.mp3",
+            artist="Identified Artist",
+            album="Identified Album",
+            title="Identified Title",
+            track_number=1,
+        )
+        with (
+            patch("undisorder.importer.extract_audio_batch", return_value={
+                source / "song.mp3": audio_meta,
+            }),
+            patch("undisorder.importer.identify_audio", return_value=identified_meta),
+            patch("undisorder.importer.write_audio_tags") as mock_write_tags,
+            patch("undisorder.importer.hash_file") as mock_hash,
+        ):
+            # First call: original hash, second call: hash after tag write
+            mock_hash.side_effect = ["original-hash", "modified-hash"]
+            run_import(args)
+
+        # write_audio_tags should have been called with the target path and metadata
+        mock_write_tags.assert_called_once()
+        call_args = mock_write_tags.call_args
+        assert call_args[0][1] is identified_meta
+
+        # DB should have been called with different original_hash and current_hash
+        from undisorder.hashdb import HashDB
+        db = HashDB(tmp_path / "musik")
+        row = db._conn.execute(
+            "SELECT original_hash, current_hash FROM files WHERE original_hash = ?",
+            ("original-hash",),
+        ).fetchone()
+        assert row is not None
+        assert row[0] == "original-hash"
+        assert row[1] == "modified-hash"
+        db.close()
+
+    def test_no_identify_current_hash_equals_original(self, tmp_path: pathlib.Path):
+        """Without --identify: current_hash defaults to original_hash."""
+        source = tmp_path / "source"
+        source.mkdir()
+        (source / "song.mp3").write_bytes(b"\xff\xfb\x90\x00no identify")
+
+        args = self._make_args(tmp_path)
+
+        audio_meta = AudioMetadata(
+            source_path=source / "song.mp3",
+            artist="Artist",
+            album="Album",
+            title="Song",
+            track_number=1,
+        )
+        with patch("undisorder.importer.extract_audio_batch", return_value={
+            source / "song.mp3": audio_meta,
+        }):
+            run_import(args)
+
+        from undisorder.hashdb import HashDB
+        db = HashDB(tmp_path / "musik")
+        row = db._conn.execute(
+            "SELECT original_hash, current_hash FROM files",
+        ).fetchone()
+        assert row is not None
+        assert row[0] == row[1]  # current_hash == original_hash
+        db.close()
+
     def test_identify_uses_cache(self, tmp_path: pathlib.Path, caplog):
         """With --identify and a cached entry, no API calls are made."""
         source = tmp_path / "source"
