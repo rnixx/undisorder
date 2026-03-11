@@ -1,9 +1,7 @@
 """Tests for undisorder.importer — import photo/video/audio files."""
 
 from undisorder.audio_metadata import AudioMetadata
-from undisorder.importer import _group_by_source_dir
-from undisorder.importer import _iter_batches
-from undisorder.importer import _log_failure
+from undisorder.importer import BaseImporter
 from undisorder.importer import run_import
 from unittest.mock import MagicMock
 from unittest.mock import patch
@@ -15,7 +13,7 @@ import pathlib
 
 
 class TestGroupBySourceDir:
-    """Test _group_by_source_dir helper."""
+    """Test BaseImporter._group_by_source_dir helper."""
 
     def test_groups_by_parent_directory(self, tmp_path: pathlib.Path):
         """Files from 2 dirs grouped correctly."""
@@ -31,7 +29,7 @@ class TestGroupBySourceDir:
         f2.touch()
         f3.touch()
 
-        groups = _group_by_source_dir([f1, f2, f3], source)
+        groups = BaseImporter._group_by_source_dir([f1, f2, f3], source)
         group_dict = dict(groups)
 
         assert pathlib.PurePosixPath("vacation") in group_dict
@@ -55,7 +53,7 @@ class TestGroupBySourceDir:
         f2.touch()
         f3.touch()
 
-        groups = _group_by_source_dir([f1, f2, f3], source)
+        groups = BaseImporter._group_by_source_dir([f1, f2, f3], source)
         dir_order = [d for d, _ in groups]
 
         assert dir_order == [
@@ -71,21 +69,21 @@ class TestGroupBySourceDir:
         f = source / "photo.jpg"
         f.touch()
 
-        groups = _group_by_source_dir([f], source)
+        groups = BaseImporter._group_by_source_dir([f], source)
         assert len(groups) == 1
         assert groups[0][0] == pathlib.PurePosixPath(".")
         assert groups[0][1] == [f]
 
 
 class TestIterBatches:
-    """Test _iter_batches helper."""
+    """Test BaseImporter._iter_batches helper."""
 
     def test_small_dir_passes_through(self):
         """Dir with 3 files, batch_size=100 → 1 batch."""
         files = [pathlib.Path(f"/src/dir/f{i}.jpg") for i in range(3)]
         groups = [(pathlib.PurePosixPath("dir"), files)]
 
-        batches = list(_iter_batches(groups, batch_size=100))
+        batches = list(BaseImporter._iter_batches(groups, batch_size=100))
         assert len(batches) == 1
         assert batches[0][0] == pathlib.PurePosixPath("dir")
         assert batches[0][1] == files
@@ -95,7 +93,7 @@ class TestIterBatches:
         files = [pathlib.Path(f"/src/dir/f{i}.jpg") for i in range(250)]
         groups = [(pathlib.PurePosixPath("dir"), files)]
 
-        batches = list(_iter_batches(groups, batch_size=100))
+        batches = list(BaseImporter._iter_batches(groups, batch_size=100))
         assert len(batches) == 3
         assert len(batches[0][1]) == 100
         assert len(batches[1][1]) == 100
@@ -112,7 +110,7 @@ class TestIterBatches:
             (pathlib.PurePosixPath("a"), files_shallow),
         ]
 
-        batches = list(_iter_batches(groups, batch_size=100))
+        batches = list(BaseImporter._iter_batches(groups, batch_size=100))
         dirs = [d for d, _ in batches]
         # Deep dir's 2 batches come before shallow dir's 1 batch
         assert dirs == [
@@ -1624,7 +1622,7 @@ class TestFailureLogging:
         try:
             raise OSError("disk read error")
         except OSError as exc:
-            _log_failure(rel_dir, "photo_video", batch, exc)
+            BaseImporter._log_failure(rel_dir, "photo_video", batch, exc)
 
         log_path = config_dir / "import_failures.jsonl"
         assert log_path.exists()
@@ -1650,7 +1648,7 @@ class TestFailureLogging:
             try:
                 raise ValueError(f"error {i}")
             except ValueError as exc:
-                _log_failure(
+                BaseImporter._log_failure(
                     pathlib.PurePosixPath(f"dir{i}"),
                     "audio",
                     [pathlib.Path(f"/src/dir{i}/file.mp3")],
@@ -1674,7 +1672,7 @@ class TestFailureLogging:
         try:
             raise RuntimeError("something broke")
         except RuntimeError as exc:
-            _log_failure(
+            BaseImporter._log_failure(
                 pathlib.PurePosixPath("."),
                 "photo_video",
                 [pathlib.Path("/src/photo.jpg")],

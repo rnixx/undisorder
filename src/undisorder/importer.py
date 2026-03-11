@@ -35,59 +35,6 @@ import traceback
 logger = logging.getLogger(__name__)
 
 
-def _log_failure(
-    rel_dir: pathlib.PurePosixPath,
-    media_type: str,
-    batch: list[pathlib.Path],
-    exc: Exception,
-) -> None:
-    """Append a structured failure record to the import failures log."""
-    log_path = config_dir() / "import_failures.jsonl"
-    entry = {
-        "timestamp": datetime.datetime.now().isoformat(),
-        "source_dir": str(rel_dir),
-        "media_type": media_type,
-        "files": [str(f) for f in batch],
-        "error_type": type(exc).__name__,
-        "error_message": str(exc),
-        "traceback": traceback.format_exc(),
-    }
-    with open(log_path, "a") as fh:
-        fh.write(json.dumps(entry) + "\n")
-
-
-def _group_by_source_dir(
-    files: list[pathlib.Path],
-    source_root: pathlib.Path,
-) -> list[tuple[pathlib.PurePosixPath, list[pathlib.Path]]]:
-    """Group files by parent directory relative to source_root.
-
-    Returns list of (rel_dir, [files]) sorted deepest-first, then alphabetically.
-    """
-    groups: dict[pathlib.PurePosixPath, list[pathlib.Path]] = {}
-    for f in files:
-        rel = pathlib.PurePosixPath(f.parent.relative_to(source_root))
-        groups.setdefault(rel, []).append(f)
-
-    # Sort: deepest first (most path parts), then alphabetical
-    return sorted(groups.items(), key=lambda item: (-len(item[0].parts), item[0]))
-
-
-def _iter_batches(
-    dir_groups: list[tuple[pathlib.PurePosixPath, list[pathlib.Path]]],
-    batch_size: int,
-) -> list[tuple[pathlib.PurePosixPath, list[pathlib.Path]]]:
-    """Slice directory groups into batches of at most batch_size files.
-
-    Small directories pass through as-is. Large directories yield multiple chunks.
-    """
-    batches: list[tuple[pathlib.PurePosixPath, list[pathlib.Path]]] = []
-    for rel_dir, files in dir_groups:
-        for i in range(0, len(files), batch_size):
-            batches.append((rel_dir, files[i : i + batch_size]))
-    return batches
-
-
 # ---------------------------------------------------------------------------
 # Base importer
 # ---------------------------------------------------------------------------
@@ -173,11 +120,66 @@ class BaseImporter:
     def _post_move_cleanup(self, src_path: pathlib.Path) -> None:
         """Hook for deferred cleanup (e.g. delete source after copy + tag write)."""
 
+    # -- helpers ---------------------------------------------------------------
+
+    @staticmethod
+    def _log_failure(
+        rel_dir: pathlib.PurePosixPath,
+        media_type: str,
+        batch: list[pathlib.Path],
+        exc: Exception,
+    ) -> None:
+        """Append a structured failure record to the import failures log."""
+        log_path = config_dir() / "import_failures.jsonl"
+        entry = {
+            "timestamp": datetime.datetime.now().isoformat(),
+            "source_dir": str(rel_dir),
+            "media_type": media_type,
+            "files": [str(f) for f in batch],
+            "error_type": type(exc).__name__,
+            "error_message": str(exc),
+            "traceback": traceback.format_exc(),
+        }
+        with open(log_path, "a") as fh:
+            fh.write(json.dumps(entry) + "\n")
+
+    @staticmethod
+    def _group_by_source_dir(
+        files: list[pathlib.Path],
+        source_root: pathlib.Path,
+    ) -> list[tuple[pathlib.PurePosixPath, list[pathlib.Path]]]:
+        """Group files by parent directory relative to source_root.
+
+        Returns list of (rel_dir, [files]) sorted deepest-first, then alphabetically.
+        """
+        groups: dict[pathlib.PurePosixPath, list[pathlib.Path]] = {}
+        for f in files:
+            rel = pathlib.PurePosixPath(f.parent.relative_to(source_root))
+            groups.setdefault(rel, []).append(f)
+
+        # Sort: deepest first (most path parts), then alphabetical
+        return sorted(groups.items(), key=lambda item: (-len(item[0].parts), item[0]))
+
+    @staticmethod
+    def _iter_batches(
+        dir_groups: list[tuple[pathlib.PurePosixPath, list[pathlib.Path]]],
+        batch_size: int,
+    ) -> list[tuple[pathlib.PurePosixPath, list[pathlib.Path]]]:
+        """Slice directory groups into batches of at most batch_size files.
+
+        Small directories pass through as-is. Large directories yield multiple chunks.
+        """
+        batches: list[tuple[pathlib.PurePosixPath, list[pathlib.Path]]] = []
+        for rel_dir, files in dir_groups:
+            for i in range(0, len(files), batch_size):
+                batches.append((rel_dir, files[i : i + batch_size]))
+        return batches
+
     # -- shared workflow ----------------------------------------------------
 
     def run(self, files: list[pathlib.Path]) -> int:
         """Run the full batch pipeline.  Returns the number of failed batches."""
-        dir_groups = _group_by_source_dir(files, self.args.source)
+        dir_groups = self._group_by_source_dir(files, self.args.source)
         total_imported = 0
         total_skipped = 0
         total_failures = 0
@@ -185,7 +187,7 @@ class BaseImporter:
         if self.args.dry_run:
             logger.info(f"\n[DRY RUN] Importing {self.media_label} file(s) ...\n")
 
-        batches = _iter_batches(dir_groups, batch_size=self.batch_size)
+        batches = self._iter_batches(dir_groups, batch_size=self.batch_size)
         total_batches = len(batches)
         for batch_idx, (rel_dir, batch) in enumerate(batches, 1):
             n = len(batch)
@@ -199,7 +201,7 @@ class BaseImporter:
                 total_skipped += skipped
             except Exception as exc:
                 logger.exception(f"Error importing {rel_dir}, skipping")
-                _log_failure(rel_dir, self.failure_label, batch, exc)
+                self._log_failure(rel_dir, self.failure_label, batch, exc)
                 total_failures += 1
 
         if total_skipped:
