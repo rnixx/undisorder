@@ -23,7 +23,6 @@ from undisorder.selector import group_by_directory
 from undisorder.selector import interactive_select
 
 import argparse
-import collections.abc
 import datetime
 import json
 import logging
@@ -89,135 +88,316 @@ def _iter_batches(
     return batches
 
 
-def _import_photo_video_batch(
-    batch: list[pathlib.Path],
-    args: argparse.Namespace,
-    img_db: HashDB,
-    vid_db: HashDB,
-) -> tuple[int, int]:
-    """Process one batch of photo/video files: metadata → hash → dedup → import.
+# ---------------------------------------------------------------------------
+# Base importer
+# ---------------------------------------------------------------------------
 
-    Returns (imported, skipped).
+class BaseImporter:
+    """Base class for media file importers.
+
+    Subclasses override hooks for metadata extraction, target path logic,
+    and optional pre/post-import steps.  The shared workflow is:
+
+        extract metadata → hash → dedup → (dry-run log | copy/move + db insert)
     """
-    metadata_map = extract_batch(batch)
 
-    imported = 0
-    skipped = 0
+    media_label: str = ""
+    failure_label: str = ""
+    batch_size: int = 100
 
-    # Hash, dedup against target, and collect files to import
-    to_import: list[tuple[pathlib.Path, str, bool]] = []
+    def __init__(self, args: argparse.Namespace) -> None:
+        self.args = args
+        self._dbs: list[HashDB] = []
 
-    for i, f in enumerate(batch, 1):
-        if not args.dry_run:
-            logger.info(f"  [{i}/{len(batch)}] {f.name}")
-        h = hash_file(f)
-        is_video = classify(f) is FileType.VIDEO
-        db = vid_db if is_video else img_db
+    def __enter__(self) -> BaseImporter:
+        self._open_dbs()
+        return self
 
-        if db.hash_exists(h):
-            skipped += 1
-            if args.dry_run:
-                logger.info(f"  [{i}/{len(batch)}] {f.name} (already imported, skipping)")
-            continue
+    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+        for db in self._dbs:
+            db.close()
 
-        to_import.append((f, h, is_video))
+    # -- hooks for subclasses -----------------------------------------------
 
-    if not to_import:
+    def _open_dbs(self) -> None:
+        """Open database connections.  Populate self._dbs."""
+        raise NotImplementedError
+
+    def _get_db(self, src_path: pathlib.Path) -> HashDB:
+        """Return the HashDB instance for *src_path*."""
+        raise NotImplementedError
+
+    def _get_target_base(self, src_path: pathlib.Path) -> pathlib.Path:
+        """Return the root target directory for *src_path*."""
+        raise NotImplementedError
+
+    def _extract_metadata(self, batch: list[pathlib.Path]) -> dict:
+        """Return a mapping {src_path: metadata} for the batch."""
+        raise NotImplementedError
+
+    def _default_metadata(self, src_path: pathlib.Path):
+        """Return a fallback metadata object when extraction yielded nothing."""
+        raise NotImplementedError
+
+    def _determine_target_path(self, src_path: pathlib.Path, metadata) -> pathlib.Path:
+        """Return the full target path (before collision resolution)."""
+        raise NotImplementedError
+
+    def _pre_dedup(
+        self,
+        f: pathlib.Path,
+        i: int,
+        batch_len: int,
+        file_hash: str,
+        metadata_map: dict,
+    ) -> None:
+        """Hook called per-file before the dedup check.  Default: log progress."""
+        if not self.args.dry_run:
+            logger.info(f"  [{i}/{batch_len}] {f.name}")
+
+    def _should_move(self, src_path: pathlib.Path) -> bool:
+        """Whether to move (vs copy) *src_path*."""
+        return self.args.move
+
+    def _post_import(
+        self,
+        src_path: pathlib.Path,
+        target_path: pathlib.Path,
+        file_hash: str,
+        metadata,
+    ) -> str:
+        """Hook after copy/move.  Returns the current_hash to store in the DB."""
+        return file_hash
+
+    def _post_move_cleanup(self, src_path: pathlib.Path) -> None:
+        """Hook for deferred cleanup (e.g. delete source after copy + tag write)."""
+
+    # -- shared workflow ----------------------------------------------------
+
+    def run(self, files: list[pathlib.Path]) -> int:
+        """Run the full batch pipeline.  Returns the number of failed batches."""
+        dir_groups = _group_by_source_dir(files, self.args.source)
+        total_imported = 0
+        total_skipped = 0
+        total_failures = 0
+
+        if self.args.dry_run:
+            logger.info(f"\n[DRY RUN] Importing {self.media_label} file(s) ...\n")
+
+        batches = _iter_batches(dir_groups, batch_size=self.batch_size)
+        total_batches = len(batches)
+        for batch_idx, (rel_dir, batch) in enumerate(batches, 1):
+            n = len(batch)
+            label = "file" if n == 1 else "files"
+            logger.info(f"Processing {self.media_label} {batch_idx}/{total_batches}: {rel_dir}/ ({n} {label})")
+            try:
+                imported, skipped = self.import_batch(batch)
+                total_imported += imported
+                total_skipped += skipped
+            except Exception as exc:
+                logger.exception(f"Error importing {rel_dir}, skipping")
+                _log_failure(rel_dir, self.failure_label, batch, exc)
+                total_failures += 1
+
+        if total_skipped:
+            logger.info(f"\nSkipping {total_skipped} {self.media_label} file(s) already present in target.")
+        if self.args.dry_run:
+            if total_imported:
+                logger.info(f"\n[DRY RUN] Would import {total_imported} {self.media_label} file(s).")
+            else:
+                logger.info(f"No {self.media_label} files to import.")
+        else:
+            if total_imported:
+                logger.info(f"\nImported {total_imported} {self.media_label} file(s).")
+            elif not total_skipped:
+                logger.info(f"No {self.media_label} files to import.")
+
+        return total_failures
+
+    def import_batch(self, batch: list[pathlib.Path]) -> tuple[int, int]:
+        """Process one batch of files.  Returns (imported, skipped)."""
+        metadata_map = self._extract_metadata(batch)
+
+        imported = 0
+        skipped = 0
+        to_import: list[tuple[pathlib.Path, str]] = []
+
+        for i, f in enumerate(batch, 1):
+            h = hash_file(f)
+
+            self._pre_dedup(f, i, len(batch), h, metadata_map)
+
+            if self._get_db(f).hash_exists(h):
+                skipped += 1
+                if self.args.dry_run:
+                    logger.info(f"  [{i}/{len(batch)}] {f.name} (already imported, skipping)")
+                continue
+
+            to_import.append((f, h))
+
+        if not to_import:
+            return imported, skipped
+
+        if self.args.dry_run:
+            grouped: dict[str, list[str]] = {}
+            for src_path, file_hash in to_import:
+                meta = metadata_map.get(src_path, self._default_metadata(src_path))
+                target_path = self._determine_target_path(src_path, meta)
+                target_base = self._get_target_base(src_path)
+                dirname = str(target_path.parent.relative_to(target_base))
+                grouped.setdefault(dirname, []).append(target_path.name)
+
+            for dirname, filenames in grouped.items():
+                n = len(filenames)
+                label = "file" if n == 1 else "files"
+                logger.info(f"  {dirname}/ ({n} {label})")
+                for name in filenames:
+                    logger.info(f"    {name}")
+
+            imported = len(to_import)
+        else:
+            for src_path, file_hash in to_import:
+                meta = metadata_map.get(src_path, self._default_metadata(src_path))
+                target_path = self._determine_target_path(src_path, meta)
+                target_path = resolve_collision(target_path)
+
+                target_path.parent.mkdir(parents=True, exist_ok=True)
+                if self._should_move(src_path):
+                    shutil.move(str(src_path), str(target_path))
+                else:
+                    shutil.copy2(str(src_path), str(target_path))
+
+                current_hash = self._post_import(src_path, target_path, file_hash, meta)
+
+                target_base = self._get_target_base(src_path)
+                rel_path = target_path.relative_to(target_base)
+                self._get_db(src_path).insert(
+                    original_hash=file_hash,
+                    current_hash=current_hash,
+                    file_path=str(rel_path),
+                )
+                imported += 1
+
+                self._post_move_cleanup(src_path)
+
         return imported, skipped
 
-    if args.dry_run:
-        grouped: dict[str, list[str]] = {}
-        for src_path, file_hash, is_video in to_import:
-            meta = metadata_map.get(src_path, Metadata(source_path=src_path))
-            dirname = suggest_dirname(meta, source_root=args.source)
-            grouped.setdefault(dirname, []).append(src_path.name)
 
-        for dirname, filenames in grouped.items():
-            n = len(filenames)
-            label = "file" if n == 1 else "files"
-            logger.info(f"  {dirname}/ ({n} {label})")
-            for name in filenames:
-                logger.info(f"    {name}")
+# ---------------------------------------------------------------------------
+# Photo / Video importer
+# ---------------------------------------------------------------------------
 
-        imported = len(to_import)
-    else:
-        for src_path, file_hash, is_video in to_import:
-            meta = metadata_map.get(src_path, Metadata(source_path=src_path))
-            dirname = suggest_dirname(meta, source_root=args.source)
+class PhotoVideoImporter(BaseImporter):
+    """Importer for photo and video files."""
 
-            target_base = args.video_target if is_video else args.images_target
-            target_path = target_base / dirname / src_path.name
-            target_path = resolve_collision(target_path)
+    media_label = "photo/video"
+    failure_label = "photo_video"
+    batch_size = 100
 
-            target_path.parent.mkdir(parents=True, exist_ok=True)
-            if args.move:
-                shutil.move(str(src_path), str(target_path))
-            else:
-                shutil.copy2(str(src_path), str(target_path))
+    def _open_dbs(self) -> None:
+        if not self.args.dry_run:
+            self.args.images_target.mkdir(parents=True, exist_ok=True)
+            self.args.video_target.mkdir(parents=True, exist_ok=True)
+        self._img_db = HashDB(self.args.images_target)
+        self._vid_db = HashDB(self.args.video_target)
+        self._dbs = [self._img_db, self._vid_db]
 
-            db = vid_db if is_video else img_db
-            rel_path = target_path.relative_to(target_base)
-            db.insert(
-                original_hash=file_hash,
-                file_path=str(rel_path),
+    def _get_db(self, src_path: pathlib.Path) -> HashDB:
+        return self._vid_db if classify(src_path) is FileType.VIDEO else self._img_db
+
+    def _get_target_base(self, src_path: pathlib.Path) -> pathlib.Path:
+        return self.args.video_target if classify(src_path) is FileType.VIDEO else self.args.images_target
+
+    def _extract_metadata(self, batch: list[pathlib.Path]) -> dict:
+        return extract_batch(batch)
+
+    def _default_metadata(self, src_path: pathlib.Path):
+        return Metadata(source_path=src_path)
+
+    def _determine_target_path(self, src_path: pathlib.Path, metadata) -> pathlib.Path:
+        dirname = suggest_dirname(metadata, source_root=self.args.source)
+        target_base = self._get_target_base(src_path)
+        return target_base / dirname / src_path.name
+
+
+# ---------------------------------------------------------------------------
+# Audio importer
+# ---------------------------------------------------------------------------
+
+class AudioImporter(BaseImporter):
+    """Importer for audio files with optional AcoustID identification."""
+
+    media_label = "audio"
+    failure_label = "audio"
+    batch_size = 10
+
+    def __init__(
+        self,
+        args: argparse.Namespace,
+        *,
+        acoustid_key: str | None = None,
+    ) -> None:
+        super().__init__(args)
+        self._acoustid_key = acoustid_key
+        self._identified: set[pathlib.Path] = set()
+
+    def _open_dbs(self) -> None:
+        if not self.args.dry_run:
+            self.args.audio_target.mkdir(parents=True, exist_ok=True)
+        self._aud_db = HashDB(self.args.audio_target)
+        self._dbs = [self._aud_db]
+
+    def _get_db(self, src_path: pathlib.Path) -> HashDB:
+        return self._aud_db
+
+    def _get_target_base(self, src_path: pathlib.Path) -> pathlib.Path:
+        return self.args.audio_target
+
+    def _extract_metadata(self, batch: list[pathlib.Path]) -> dict:
+        return extract_audio_batch(batch)
+
+    def _default_metadata(self, src_path: pathlib.Path):
+        return AudioMetadata(source_path=src_path)
+
+    def _determine_target_path(self, src_path: pathlib.Path, metadata) -> pathlib.Path:
+        return determine_audio_target_path(metadata, self.args.audio_target)
+
+    def _pre_dedup(self, f, i, batch_len, file_hash, metadata_map) -> None:
+        if self._acoustid_key and f in metadata_map:
+            cached = self._aud_db.get_acoustid_cache(file_hash)
+            suffix = " \u2014 AcoustID (cached)" if cached else " \u2014 AcoustID ..."
+            logger.info(f"  [{i}/{batch_len}] {f.name}{suffix}")
+            original = metadata_map[f]
+            metadata_map[f] = identify_audio(
+                f, original,
+                api_key=self._acoustid_key, file_hash=file_hash, db=self._aud_db,
             )
-            imported += 1
+            if metadata_map[f] is not original:
+                self._identified.add(f)
+        elif not self.args.dry_run:
+            logger.info(f"  [{i}/{batch_len}] {f.name}")
 
-    return imported, skipped
+    def _should_move(self, src_path: pathlib.Path) -> bool:
+        return self.args.move and not self._acoustid_key
+
+    def _post_import(self, src_path, target_path, file_hash, metadata) -> str:
+        if src_path in self._identified:
+            write_audio_tags(target_path, metadata)
+            return hash_file(target_path)
+        return file_hash
+
+    def _post_move_cleanup(self, src_path: pathlib.Path) -> None:
+        if self.args.move and self._acoustid_key:
+            src_path.unlink()
+
+    def import_batch(self, batch: list[pathlib.Path]) -> tuple[int, int]:
+        self._identified = set()
+        return super().import_batch(batch)
 
 
-def _run_batch_pipeline(
-    files: list[pathlib.Path],
-    args: argparse.Namespace,
-    *,
-    media_label: str,
-    failure_label: str,
-    batch_size: int,
-    batch_fn: collections.abc.Callable[[list[pathlib.Path]], tuple[int, int]],
-) -> int:
-    """Shared batch loop: group → iterate → try/except → summary.
-
-    batch_fn(batch) returns (imported, skipped).
-    Returns the number of failed batches.
-    """
-    dir_groups = _group_by_source_dir(files, args.source)
-    total_imported = 0
-    total_skipped = 0
-    total_failures = 0
-
-    if args.dry_run:
-        logger.info(f"\n[DRY RUN] Importing {media_label} file(s) ...\n")
-
-    batches = _iter_batches(dir_groups, batch_size=batch_size)
-    total_batches = len(batches)
-    for batch_idx, (rel_dir, batch) in enumerate(batches, 1):
-        n = len(batch)
-        label = "file" if n == 1 else "files"
-        logger.info(f"Processing {media_label} {batch_idx}/{total_batches}: {rel_dir}/ ({n} {label})")
-        try:
-            imported, skipped = batch_fn(batch)
-            total_imported += imported
-            total_skipped += skipped
-        except Exception as exc:
-            logger.exception(f"Error importing {rel_dir}, skipping")
-            _log_failure(rel_dir, failure_label, batch, exc)
-            total_failures += 1
-
-    if total_skipped:
-        logger.info(f"\nSkipping {total_skipped} {media_label} file(s) already present in target.")
-    if args.dry_run:
-        if total_imported:
-            logger.info(f"\n[DRY RUN] Would import {total_imported} {media_label} file(s).")
-        else:
-            logger.info(f"No {media_label} files to import.")
-    else:
-        if total_imported:
-            logger.info(f"\nImported {total_imported} {media_label} file(s).")
-        elif not total_skipped:
-            logger.info(f"No {media_label} files to import.")
-
-    return total_failures
-
+# ---------------------------------------------------------------------------
+# Entry points
+# ---------------------------------------------------------------------------
 
 def _import_photo_video(args: argparse.Namespace, result) -> int:
     """Import photo/video files from source into the organized collection."""
@@ -227,117 +407,8 @@ def _import_photo_video(args: argparse.Namespace, result) -> int:
 
     logger.info(f"Found {len(media_files)} photo/video files ({len(result.photos)} photos, {len(result.videos)} videos)")
 
-    if not args.dry_run:
-        args.images_target.mkdir(parents=True, exist_ok=True)
-        args.video_target.mkdir(parents=True, exist_ok=True)
-
-    with HashDB(args.images_target) as img_db, HashDB(args.video_target) as vid_db:
-        failures = _run_batch_pipeline(
-            media_files, args,
-            media_label="photo/video",
-            failure_label="photo_video",
-            batch_size=100,
-            batch_fn=lambda batch: _import_photo_video_batch(batch, args, img_db, vid_db),
-        )
-
-    return failures
-
-
-def _import_audio_batch(
-    batch: list[pathlib.Path],
-    args: argparse.Namespace,
-    aud_db: HashDB,
-    *,
-    acoustid_key: str | None = None,
-) -> tuple[int, int]:
-    """Process one batch of audio files: metadata → hash → identify → dedup → import.
-
-    Returns (imported, skipped).
-    """
-    audio_meta_map = extract_audio_batch(batch)
-
-    imported = 0
-    skipped = 0
-    identified: set[pathlib.Path] = set()
-
-    # Hash, dedup against target, collect files to import
-    to_import: list[tuple[pathlib.Path, str]] = []
-
-    for i, f in enumerate(batch, 1):
-        h = hash_file(f)
-
-        # AcoustID identification (per-file, with cache)
-        if acoustid_key and f in audio_meta_map:
-            cached = aud_db.get_acoustid_cache(h)
-            suffix = " \u2014 AcoustID (cached)" if cached else " \u2014 AcoustID ..."
-            logger.info(f"  [{i}/{len(batch)}] {f.name}{suffix}")
-            original = audio_meta_map[f]
-            audio_meta_map[f] = identify_audio(
-                f, original,
-                api_key=acoustid_key, file_hash=h, db=aud_db,
-            )
-            if audio_meta_map[f] is not original:
-                identified.add(f)
-        elif not args.dry_run:
-            logger.info(f"  [{i}/{len(batch)}] {f.name}")
-
-        if aud_db.hash_exists(h):
-            skipped += 1
-            if args.dry_run:
-                logger.info(f"  [{i}/{len(batch)}] {f.name} (already imported, skipping)")
-            continue
-
-        to_import.append((f, h))
-
-    if not to_import:
-        return imported, skipped
-
-    if args.dry_run:
-        grouped: dict[str, list[str]] = {}
-        for src_path, file_hash in to_import:
-            meta = audio_meta_map.get(src_path, AudioMetadata(source_path=src_path))
-            target_path = determine_audio_target_path(meta, args.audio_target)
-            dirname = str(target_path.parent.relative_to(args.audio_target))
-            grouped.setdefault(dirname, []).append(target_path.name)
-
-        for dirname, filenames in grouped.items():
-            n = len(filenames)
-            label = "file" if n == 1 else "files"
-            logger.info(f"  {dirname}/ ({n} {label})")
-            for name in filenames:
-                logger.info(f"    {name}")
-
-        imported = len(to_import)
-    else:
-        for src_path, file_hash in to_import:
-            meta = audio_meta_map.get(src_path, AudioMetadata(source_path=src_path))
-
-            target_path = determine_audio_target_path(meta, args.audio_target)
-            target_path = resolve_collision(target_path)
-
-            target_path.parent.mkdir(parents=True, exist_ok=True)
-            if args.move and not acoustid_key:
-                shutil.move(str(src_path), str(target_path))
-            else:
-                shutil.copy2(str(src_path), str(target_path))
-
-            current_hash = file_hash
-            if src_path in identified:
-                write_audio_tags(target_path, meta)
-                current_hash = hash_file(target_path)
-
-            rel_path = target_path.relative_to(args.audio_target)
-            aud_db.insert(
-                original_hash=file_hash,
-                current_hash=current_hash,
-                file_path=str(rel_path),
-            )
-            imported += 1
-
-            if args.move and acoustid_key:
-                src_path.unlink()
-
-    return imported, skipped
+    with PhotoVideoImporter(args) as importer:
+        return importer.run(media_files)
 
 
 def _import_audio(args: argparse.Namespace, result) -> int:
@@ -357,19 +428,8 @@ def _import_audio(args: argparse.Namespace, result) -> int:
         logger.error("--identify requires an AcoustID API key (--acoustid-key, ACOUSTID_API_KEY, or config.toml)")
         sys.exit(1)
 
-    if not args.dry_run:
-        args.audio_target.mkdir(parents=True, exist_ok=True)
-
-    with HashDB(args.audio_target) as aud_db:
-        failures = _run_batch_pipeline(
-            audio_files, args,
-            media_label="audio",
-            failure_label="audio",
-            batch_size=10,
-            batch_fn=lambda batch: _import_audio_batch(batch, args, aud_db, acoustid_key=acoustid_key),
-        )
-
-    return failures
+    with AudioImporter(args, acoustid_key=acoustid_key) as importer:
+        return importer.run(audio_files)
 
 
 def run_import(args: argparse.Namespace) -> None:
