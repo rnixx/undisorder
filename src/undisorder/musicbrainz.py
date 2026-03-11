@@ -127,6 +127,8 @@ def identify_audio(
     if api_key is None:
         return existing_meta
 
+    lookup_meta: AudioMetadata | None
+
     # 1. Cache check
     if db is not None and file_hash is not None:
         cached = db.get_acoustid_cache(file_hash)

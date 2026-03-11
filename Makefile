@@ -132,12 +132,12 @@ PACKAGES_ALLOW_PRERELEASES?=false
 # The command which gets executed. Defaults to the location the
 # :ref:`run-tests` template gets rendered to if configured.
 # Default: .mxmake/files/run-tests.sh
-TEST_COMMAND?=pytest tests
+TEST_COMMAND?=pytest tests --cov --cov-report=term-missing
 
 # Additional Python requirements for running tests to be
 # installed (via pip).
 # Default: pytest
-TEST_REQUIREMENTS?=pytest
+TEST_REQUIREMENTS?=pytest pytest-cov
 
 # Additional make targets the test target depends on.
 # No default value.

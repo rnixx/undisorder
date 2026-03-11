@@ -84,9 +84,8 @@ brew install exiftool chromaprint
 ```bash
 git clone https://github.com/rnixx/undisorder.git
 cd undisorder
-python -m venv venv
+make install
 source venv/bin/activate
-pip install -e .
 ```
 
 ### Typical workflow
@@ -135,32 +134,32 @@ Interactive configuration wizard. Creates or updates
 
 ### Global
 
-| Option | Description |
-|---|---|
-| `--verbose`, `-v` | Debug output |
-| `--quiet`, `-q` | Suppress informational output, show warnings/errors only |
-| `--configure` | Interactive configuration setup |
+  Option              Description
+  ------------------  ------------------------------------------------
+  --verbose, -v       Debug output
+  --quiet, -q         Suppress informational output, warnings/errors only
+  --configure         Interactive configuration setup
 
 ### `import`
 
-| Option | Default | Description |
-|---|---|---|
-| `--dry-run` | off | Preview changes without executing |
-| `--move` | off | Move files instead of copying |
-| `--images-target PATH` | `~/Bilder/Fotos` | Target directory for photos |
-| `--video-target PATH` | `~/Videos` | Target directory for videos |
-| `--audio-target PATH` | `~/Musik` | Target directory for audio |
-| `--identify` / `--no-identify` | off | Enable AcoustID + MusicBrainz audio identification |
-| `--acoustid-key KEY` | -- | AcoustID API key (overrides env and config) |
-| `--exclude PATTERN` | -- | Exclude files matching glob pattern (repeatable) |
-| `--exclude-dir PATTERN` | -- | Exclude directories matching glob pattern (repeatable) |
-| `--select` | off | Interactive directory selection before import |
+  Option                        Default         Description
+  ----------------------------  --------------  ------------------------------------
+  --dry-run                     off             Preview changes without executing
+  --move                        off             Move files instead of copying
+  --images-target PATH          ~/Bilder/Fotos  Target directory for photos
+  --video-target PATH           ~/Videos        Target directory for videos
+  --audio-target PATH           ~/Musik         Target directory for audio
+  --identify / --no-identify    off             AcoustID + MusicBrainz identification
+  --acoustid-key KEY            --              AcoustID API key (overrides env/config)
+  --exclude PATTERN             --              Exclude files by glob (repeatable)
+  --exclude-dir PATTERN         --              Exclude directories by glob (repeatable)
+  --select                      off             Interactive directory selection
 
 ### `dupes`
 
-| Option | Description |
-|---|---|
-| `--delete` | Delete newer duplicates, keep oldest by mtime |
+  Option              Description
+  ------------------  ------------------------------------------------
+  --delete            Delete newer duplicates, keep oldest by mtime
 
 ### AcoustID API key
 

@@ -82,6 +82,12 @@ class HashDB:
             )
             raise SystemExit(1)
 
+    def __del__(self) -> None:
+        try:
+            self._conn.close()
+        except Exception:
+            pass
+
     def __enter__(self) -> HashDB:
         return self
 

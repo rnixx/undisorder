@@ -46,3 +46,10 @@ exclude_lines = ["pragma: no cover", "if __name__ == .__main__."]
 [tool.isort]
 profile = "plone"
 src_paths = ["src", "tests"]
+
+[[tool.mypy.overrides]]
+module = [
+    "acoustid.*",
+    "musicbrainzngs.*",
+]
+follow_untyped_imports = true
