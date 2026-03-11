@@ -32,7 +32,6 @@ import shutil
 import sys
 import traceback
 
-
 logger = logging.getLogger(__name__)
 
 
@@ -58,7 +57,8 @@ def _log_failure(
 
 
 def _group_by_source_dir(
-    files: list[pathlib.Path], source_root: pathlib.Path,
+    files: list[pathlib.Path],
+    source_root: pathlib.Path,
 ) -> list[tuple[pathlib.PurePosixPath, list[pathlib.Path]]]:
     """Group files by parent directory relative to source_root.
 
@@ -91,6 +91,7 @@ def _iter_batches(
 # ---------------------------------------------------------------------------
 # Base importer
 # ---------------------------------------------------------------------------
+
 
 class BaseImporter:
     """Base class for media file importers.
@@ -189,7 +190,9 @@ class BaseImporter:
         for batch_idx, (rel_dir, batch) in enumerate(batches, 1):
             n = len(batch)
             label = "file" if n == 1 else "files"
-            logger.info(f"Processing {self.media_label} {batch_idx}/{total_batches}: {rel_dir}/ ({n} {label})")
+            logger.info(
+                f"Processing {self.media_label} {batch_idx}/{total_batches}: {rel_dir}/ ({n} {label})"
+            )
             try:
                 imported, skipped = self.import_batch(batch)
                 total_imported += imported
@@ -200,10 +203,14 @@ class BaseImporter:
                 total_failures += 1
 
         if total_skipped:
-            logger.info(f"\nSkipping {total_skipped} {self.media_label} file(s) already present in target.")
+            logger.info(
+                f"\nSkipping {total_skipped} {self.media_label} file(s) already present in target."
+            )
         if self.args.dry_run:
             if total_imported:
-                logger.info(f"\n[DRY RUN] Would import {total_imported} {self.media_label} file(s).")
+                logger.info(
+                    f"\n[DRY RUN] Would import {total_imported} {self.media_label} file(s)."
+                )
             else:
                 logger.info(f"No {self.media_label} files to import.")
         else:
@@ -230,7 +237,9 @@ class BaseImporter:
             if self._get_db(f).hash_exists(h):
                 skipped += 1
                 if self.args.dry_run:
-                    logger.info(f"  [{i}/{len(batch)}] {f.name} (already imported, skipping)")
+                    logger.info(
+                        f"  [{i}/{len(batch)}] {f.name} (already imported, skipping)"
+                    )
                 continue
 
             to_import.append((f, h))
@@ -287,6 +296,7 @@ class BaseImporter:
 # Photo / Video importer
 # ---------------------------------------------------------------------------
 
+
 class PhotoVideoImporter(BaseImporter):
     """Importer for photo and video files."""
 
@@ -306,7 +316,11 @@ class PhotoVideoImporter(BaseImporter):
         return self._vid_db if classify(src_path) is FileType.VIDEO else self._img_db
 
     def _get_target_base(self, src_path: pathlib.Path) -> pathlib.Path:
-        return self.args.video_target if classify(src_path) is FileType.VIDEO else self.args.images_target
+        return (
+            self.args.video_target
+            if classify(src_path) is FileType.VIDEO
+            else self.args.images_target
+        )
 
     def _extract_metadata(self, batch: list[pathlib.Path]) -> dict:
         return extract_batch(batch)
@@ -323,6 +337,7 @@ class PhotoVideoImporter(BaseImporter):
 # ---------------------------------------------------------------------------
 # Audio importer
 # ---------------------------------------------------------------------------
+
 
 class AudioImporter(BaseImporter):
     """Importer for audio files with optional AcoustID identification."""
@@ -369,8 +384,11 @@ class AudioImporter(BaseImporter):
             logger.info(f"  [{i}/{batch_len}] {f.name}{suffix}")
             original = metadata_map[f]
             metadata_map[f] = identify_audio(
-                f, original,
-                api_key=self._acoustid_key, file_hash=file_hash, db=self._aud_db,
+                f,
+                original,
+                api_key=self._acoustid_key,
+                file_hash=file_hash,
+                db=self._aud_db,
             )
             if metadata_map[f] is not original:
                 self._identified.add(f)
@@ -399,13 +417,16 @@ class AudioImporter(BaseImporter):
 # Entry points
 # ---------------------------------------------------------------------------
 
+
 def _import_photo_video(args: argparse.Namespace, result) -> int:
     """Import photo/video files from source into the organized collection."""
     media_files = result.photos + result.videos
     if not media_files:
         return 0
 
-    logger.info(f"Found {len(media_files)} photo/video files ({len(result.photos)} photos, {len(result.videos)} videos)")
+    logger.info(
+        f"Found {len(media_files)} photo/video files ({len(result.photos)} photos, {len(result.videos)} videos)"
+    )
 
     with PhotoVideoImporter(args) as importer:
         return importer.run(media_files)
@@ -422,10 +443,16 @@ def _import_audio(args: argparse.Namespace, result) -> int:
     if args.identify and args.dry_run:
         logger.info("[DRY RUN] Skipping --identify (no API calls in dry-run mode)")
 
-    acoustid_key = (args.acoustid_key or os.environ.get("ACOUSTID_API_KEY")) if args.identify and not args.dry_run else None
+    acoustid_key = (
+        (args.acoustid_key or os.environ.get("ACOUSTID_API_KEY"))
+        if args.identify and not args.dry_run
+        else None
+    )
 
     if args.identify and acoustid_key is None and not args.dry_run:
-        logger.error("--identify requires an AcoustID API key (--acoustid-key, ACOUSTID_API_KEY, or config.toml)")
+        logger.error(
+            "--identify requires an AcoustID API key (--acoustid-key, ACOUSTID_API_KEY, or config.toml)"
+        )
         sys.exit(1)
 
     with AudioImporter(args, acoustid_key=acoustid_key) as importer:
@@ -441,8 +468,10 @@ def run_import(args: argparse.Namespace) -> None:
     if args.exclude or args.exclude_dir:
         before = result.total
         result = apply_exclude_patterns(
-            result, args.source,
-            exclude_file=args.exclude, exclude_dir=args.exclude_dir,
+            result,
+            args.source,
+            exclude_file=args.exclude,
+            exclude_dir=args.exclude_dir,
         )
         excluded = before - result.total
         if excluded:
@@ -454,7 +483,9 @@ def run_import(args: argparse.Namespace) -> None:
         if not groups:
             logger.info("No files to select from.")
             return
-        logger.info(f"\nFound files in {len(groups)} director{'y' if len(groups) == 1 else 'ies'}:\n")
+        logger.info(
+            f"\nFound files in {len(groups)} director{'y' if len(groups) == 1 else 'ies'}:\n"
+        )
         try:
             accepted = interactive_select(groups, args.source)
         except KeyboardInterrupt:
@@ -478,6 +509,4 @@ def run_import(args: argparse.Namespace) -> None:
 
     if failures:
         log_path = config_dir() / "import_failures.jsonl"
-        logger.warning(
-            f"\n{failures} batch(es) failed. Details written to {log_path}"
-        )
+        logger.warning(f"\n{failures} batch(es) failed. Details written to {log_path}")

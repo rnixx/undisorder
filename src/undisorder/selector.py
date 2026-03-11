@@ -68,7 +68,8 @@ def apply_exclude_patterns(
 
 
 def group_by_directory(
-    result: ScanResult, source_root: pathlib.Path,
+    result: ScanResult,
+    source_root: pathlib.Path,
 ) -> list[DirectoryGroup]:
     """Group all files by parent directory relative to source root."""
     all_files = result.all_files
@@ -78,7 +79,11 @@ def group_by_directory(
     groups: dict[pathlib.PurePosixPath, list[pathlib.Path]] = {}
     for f in all_files:
         rel = f.relative_to(source_root)
-        parent = pathlib.PurePosixPath(str(rel.parent)) if rel.parent != pathlib.PurePosixPath() else pathlib.PurePosixPath(".")
+        parent = (
+            pathlib.PurePosixPath(str(rel.parent))
+            if rel.parent != pathlib.PurePosixPath()
+            else pathlib.PurePosixPath(".")
+        )
         groups.setdefault(parent, []).append(f)
 
     result_groups = []
@@ -100,15 +105,17 @@ def group_by_directory(
             else:
                 unknown_count += 1
             total_size += f.stat().st_size
-        result_groups.append(DirectoryGroup(
-            rel_path=rel_path,
-            files=files,
-            photo_count=photo_count,
-            video_count=video_count,
-            audio_count=audio_count,
-            unknown_count=unknown_count,
-            total_size=total_size,
-        ))
+        result_groups.append(
+            DirectoryGroup(
+                rel_path=rel_path,
+                files=files,
+                photo_count=photo_count,
+                video_count=video_count,
+                audio_count=audio_count,
+                unknown_count=unknown_count,
+                total_size=total_size,
+            )
+        )
 
     return result_groups
 
@@ -117,21 +124,25 @@ def format_size(size_bytes: int) -> str:
     """Format bytes as human-readable string."""
     if size_bytes < 1024:
         return f"{size_bytes} B"
-    elif size_bytes < 1024 ** 2:
+    elif size_bytes < 1024**2:
         return f"{size_bytes / 1024:.1f} KB"
-    elif size_bytes < 1024 ** 3:
-        return f"{size_bytes / (1024 ** 2):.1f} MB"
+    elif size_bytes < 1024**3:
+        return f"{size_bytes / (1024**2):.1f} MB"
     else:
-        return f"{size_bytes / (1024 ** 3):.1f} GB"
+        return f"{size_bytes / (1024**3):.1f} GB"
 
 
 def format_group_summary(group: DirectoryGroup) -> str:
     """Format a directory group as a human-readable summary line."""
     parts = []
     if group.photo_count:
-        parts.append(f"{group.photo_count} photo{'s' if group.photo_count != 1 else ''}")
+        parts.append(
+            f"{group.photo_count} photo{'s' if group.photo_count != 1 else ''}"
+        )
     if group.video_count:
-        parts.append(f"{group.video_count} video{'s' if group.video_count != 1 else ''}")
+        parts.append(
+            f"{group.video_count} video{'s' if group.video_count != 1 else ''}"
+        )
     if group.audio_count:
         parts.append(f"{group.audio_count} audio")
     if group.unknown_count:
@@ -158,7 +169,11 @@ def interactive_select(
         print_fn(f"  {format_group_summary(group)}")
 
         while True:
-            choice = input_fn("  [y] accept  [n] skip  [l] list  [a] all  [q] quit: ").strip().lower()
+            choice = (
+                input_fn("  [y] accept  [n] skip  [l] list  [a] all  [q] quit: ")
+                .strip()
+                .lower()
+            )
 
             if choice == "y":
                 accepted.add(group.rel_path)
@@ -167,7 +182,7 @@ def interactive_select(
                 break
             elif choice == "a":
                 accepted.add(group.rel_path)
-                for remaining in groups[i + 1:]:
+                for remaining in groups[i + 1 :]:
                     accepted.add(remaining.rel_path)
                 return accepted
             elif choice == "q":
@@ -191,7 +206,11 @@ def filter_scan_result(
 
     def is_accepted(path: pathlib.Path) -> bool:
         rel = path.relative_to(source_root)
-        parent = pathlib.PurePosixPath(str(rel.parent)) if rel.parent != pathlib.PurePosixPath() else pathlib.PurePosixPath(".")
+        parent = (
+            pathlib.PurePosixPath(str(rel.parent))
+            if rel.parent != pathlib.PurePosixPath()
+            else pathlib.PurePosixPath(".")
+        )
         return parent in accepted_dirs
 
     return ScanResult(

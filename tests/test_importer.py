@@ -142,7 +142,6 @@ class TestImportPhotoVideo:
         args.dry_run = True
         args.move = False
 
-
         args.exclude = []
         args.exclude_dir = []
         args.select = False
@@ -151,6 +150,7 @@ class TestImportPhotoVideo:
             from undisorder.metadata import Metadata
 
             import datetime
+
             mock_extract.return_value = {
                 source / "photo.jpg": Metadata(
                     source_path=source / "photo.jpg",
@@ -163,7 +163,9 @@ class TestImportPhotoVideo:
         assert "dry run" in caplog.text.lower() or "DRY RUN" in caplog.text
         # File should NOT be copied
         jpg_found = any(
-            f.endswith(".jpg") for dirpath, _, files in os.walk(target_img) for f in files
+            f.endswith(".jpg")
+            for dirpath, _, files in os.walk(target_img)
+            for f in files
         )
         assert not jpg_found
 
@@ -185,7 +187,6 @@ class TestImportPhotoVideo:
         args.dry_run = False
         args.move = False
 
-
         args.exclude = []
         args.exclude_dir = []
         args.select = False
@@ -194,6 +195,7 @@ class TestImportPhotoVideo:
             from undisorder.metadata import Metadata
 
             import datetime
+
             mock_extract.return_value = {
                 source / "photo.jpg": Metadata(
                     source_path=source / "photo.jpg",
@@ -228,7 +230,6 @@ class TestImportPhotoVideo:
         args.dry_run = False
         args.move = True
 
-
         args.exclude = []
         args.exclude_dir = []
         args.select = False
@@ -237,6 +238,7 @@ class TestImportPhotoVideo:
             from undisorder.metadata import Metadata
 
             import datetime
+
             mock_extract.return_value = {
                 source / "photo.jpg": Metadata(
                     source_path=source / "photo.jpg",
@@ -262,6 +264,7 @@ class TestImportPhotoVideo:
         # Pre-populate the hash DB with the same hash
         from undisorder.hashdb import HashDB
         from undisorder.hasher import hash_file
+
         db = HashDB(target_img)
         h = hash_file(source / "photo.jpg")
         db.insert(original_hash=h, file_path="existing/photo.jpg")
@@ -274,7 +277,6 @@ class TestImportPhotoVideo:
         args.dry_run = False
         args.move = False
 
-
         args.exclude = []
         args.exclude_dir = []
         args.select = False
@@ -283,6 +285,7 @@ class TestImportPhotoVideo:
             from undisorder.metadata import Metadata
 
             import datetime
+
             mock_extract.return_value = {
                 source / "photo.jpg": Metadata(
                     source_path=source / "photo.jpg",
@@ -336,6 +339,7 @@ class TestBatchImport:
             from undisorder.metadata import Metadata
 
             import datetime
+
             mock_extract.return_value = {
                 dir_a / "photo1.jpg": Metadata(
                     source_path=dir_a / "photo1.jpg",
@@ -350,8 +354,10 @@ class TestBatchImport:
 
         # Both files should be imported
         found_files = [
-            f for dirpath, _, files in os.walk(tmp_path / "photos")
-            for f in files if not f.endswith(".db")
+            f
+            for dirpath, _, files in os.walk(tmp_path / "photos")
+            for f in files
+            if not f.endswith(".db")
         ]
         assert len(found_files) == 2
 
@@ -371,6 +377,7 @@ class TestBatchImport:
             from undisorder.metadata import Metadata
 
             import datetime
+
             mock_extract.return_value = {
                 dir_a / "bad.jpg": Metadata(
                     source_path=dir_a / "bad.jpg",
@@ -382,11 +389,15 @@ class TestBatchImport:
                 ),
             }
             # Make hash_file fail for files in dir_a
-            original_hash = __import__("undisorder.hasher", fromlist=["hash_file"]).hash_file
+            original_hash = __import__(
+                "undisorder.hasher", fromlist=["hash_file"]
+            ).hash_file
+
             def failing_hash(path):
                 if "aaa" in str(path):
                     raise OSError("disk error")
                 return original_hash(path)
+
             with patch("undisorder.importer.hash_file", side_effect=failing_hash):
                 with caplog.at_level(logging.INFO, logger="undisorder"):
                     run_import(args)
@@ -395,8 +406,10 @@ class TestBatchImport:
         assert "error" in caplog.text.lower()
         # good.jpg from dir_b should still be imported
         found_files = [
-            f for dirpath, _, files in os.walk(tmp_path / "photos")
-            for f in files if not f.endswith(".db")
+            f
+            for dirpath, _, files in os.walk(tmp_path / "photos")
+            for f in files
+            if not f.endswith(".db")
         ]
         assert len(found_files) == 1
         assert "good.jpg" in found_files[0]
@@ -418,6 +431,7 @@ class TestBatchImport:
             from undisorder.metadata import Metadata
 
             import datetime
+
             mock_extract.return_value = {
                 dir_a / "photo.jpg": Metadata(
                     source_path=dir_a / "photo.jpg",
@@ -432,8 +446,10 @@ class TestBatchImport:
 
         # Only one file should be imported (second is a hash duplicate)
         found_files = [
-            f for dirpath, _, files in os.walk(tmp_path / "photos")
-            for f in files if not f.endswith(".db")
+            f
+            for dirpath, _, files in os.walk(tmp_path / "photos")
+            for f in files
+            if not f.endswith(".db")
         ]
         assert len(found_files) == 1
 
@@ -453,6 +469,7 @@ class TestBatchImport:
             from undisorder.metadata import Metadata
 
             import datetime
+
             mock_extract.return_value = {
                 dir_a / "photo1.jpg": Metadata(
                     source_path=dir_a / "photo1.jpg",
@@ -510,16 +527,21 @@ class TestImportAudio:
             title="Song",
             track_number=1,
         )
-        with patch("undisorder.importer.extract_audio_batch", return_value={
-            source / "song.mp3": audio_meta,
-        }):
+        with patch(
+            "undisorder.importer.extract_audio_batch",
+            return_value={
+                source / "song.mp3": audio_meta,
+            },
+        ):
             with caplog.at_level(logging.INFO, logger="undisorder"):
                 run_import(args)
 
         assert "DRY RUN" in caplog.text
         # File should NOT be copied
         mp3_found = any(
-            f.endswith(".mp3") for dirpath, _, files in os.walk(tmp_path / "musik") for f in files
+            f.endswith(".mp3")
+            for dirpath, _, files in os.walk(tmp_path / "musik")
+            for f in files
         )
         assert not mp3_found
 
@@ -537,9 +559,12 @@ class TestImportAudio:
             title="Come Together",
             track_number=1,
         )
-        with patch("undisorder.importer.extract_audio_batch", return_value={
-            source / "song.mp3": audio_meta,
-        }):
+        with patch(
+            "undisorder.importer.extract_audio_batch",
+            return_value={
+                source / "song.mp3": audio_meta,
+            },
+        ):
             run_import(args)
 
         # File should be copied to Artist/Album/01_Title.mp3
@@ -566,9 +591,12 @@ class TestImportAudio:
             title="Song",
             track_number=1,
         )
-        with patch("undisorder.importer.extract_audio_batch", return_value={
-            source / "song.mp3": audio_meta,
-        }):
+        with patch(
+            "undisorder.importer.extract_audio_batch",
+            return_value={
+                source / "song.mp3": audio_meta,
+            },
+        ):
             run_import(args)
 
         # Original should be removed
@@ -585,6 +613,7 @@ class TestImportAudio:
         # Pre-populate hash DB
         from undisorder.hashdb import HashDB
         from undisorder.hasher import hash_file
+
         db = HashDB(tmp_path / "musik")
         h = hash_file(source / "song.mp3")
         db.insert(original_hash=h, file_path="Artist/Album/song.mp3")
@@ -597,9 +626,12 @@ class TestImportAudio:
             title="Song",
             track_number=1,
         )
-        with patch("undisorder.importer.extract_audio_batch", return_value={
-            source / "song.mp3": audio_meta,
-        }):
+        with patch(
+            "undisorder.importer.extract_audio_batch",
+            return_value={
+                source / "song.mp3": audio_meta,
+            },
+        ):
             with caplog.at_level(logging.INFO, logger="undisorder"):
                 run_import(args)
 
@@ -608,6 +640,7 @@ class TestImportAudio:
     def test_dupes_includes_audio(self, tmp_path: pathlib.Path, caplog):
         """The dupes command should find duplicates across audio files."""
         from undisorder.cli import cmd_dupes
+
         content = b"\xff\xfb\x90\x00duplicate audio"
         (tmp_path / "a.mp3").write_bytes(content)
         (tmp_path / "b.mp3").write_bytes(content)
@@ -642,10 +675,15 @@ class TestImportAudio:
             track_number=1,
         )
         with (
-            patch("undisorder.importer.extract_audio_batch", return_value={
-                source / "song.mp3": audio_meta,
-            }),
-            patch("undisorder.importer.identify_audio", return_value=identified_meta) as mock_identify,
+            patch(
+                "undisorder.importer.extract_audio_batch",
+                return_value={
+                    source / "song.mp3": audio_meta,
+                },
+            ),
+            patch(
+                "undisorder.importer.identify_audio", return_value=identified_meta
+            ) as mock_identify,
         ):
             with caplog.at_level(logging.INFO, logger="undisorder"):
                 run_import(args)
@@ -657,7 +695,9 @@ class TestImportAudio:
         assert call_kwargs.kwargs.get("file_hash") is not None
         assert call_kwargs.kwargs.get("db") is not None
 
-    def test_identify_writes_tags_and_updates_current_hash(self, tmp_path: pathlib.Path):
+    def test_identify_writes_tags_and_updates_current_hash(
+        self, tmp_path: pathlib.Path
+    ):
         """With --identify: write_audio_tags is called and db.insert gets current_hash != original_hash."""
         source = tmp_path / "source"
         source.mkdir()
@@ -679,9 +719,12 @@ class TestImportAudio:
             track_number=1,
         )
         with (
-            patch("undisorder.importer.extract_audio_batch", return_value={
-                source / "song.mp3": audio_meta,
-            }),
+            patch(
+                "undisorder.importer.extract_audio_batch",
+                return_value={
+                    source / "song.mp3": audio_meta,
+                },
+            ),
             patch("undisorder.importer.identify_audio", return_value=identified_meta),
             patch("undisorder.importer.write_audio_tags") as mock_write_tags,
             patch("undisorder.importer.hash_file") as mock_hash,
@@ -697,6 +740,7 @@ class TestImportAudio:
 
         # DB should have been called with different original_hash and current_hash
         from undisorder.hashdb import HashDB
+
         db = HashDB(tmp_path / "musik")
         row = db._conn.execute(
             "SELECT original_hash, current_hash FROM files WHERE original_hash = ?",
@@ -722,12 +766,16 @@ class TestImportAudio:
             title="Song",
             track_number=1,
         )
-        with patch("undisorder.importer.extract_audio_batch", return_value={
-            source / "song.mp3": audio_meta,
-        }):
+        with patch(
+            "undisorder.importer.extract_audio_batch",
+            return_value={
+                source / "song.mp3": audio_meta,
+            },
+        ):
             run_import(args)
 
         from undisorder.hashdb import HashDB
+
         db = HashDB(tmp_path / "musik")
         row = db._conn.execute(
             "SELECT original_hash, current_hash FROM files",
@@ -747,6 +795,7 @@ class TestImportAudio:
         # Pre-populate cache
         from undisorder.hashdb import HashDB
         from undisorder.hasher import hash_file
+
         aud_db = HashDB(tmp_path / "musik")
         h = hash_file(source / "song.mp3")
         aud_db.store_acoustid_cache(
@@ -754,7 +803,11 @@ class TestImportAudio:
             fingerprint="FP...",
             duration=180.0,
             recording_id="rec-cached",
-            metadata={"artist": "Cached Artist", "album": "Cached Album", "title": "Cached Title"},
+            metadata={
+                "artist": "Cached Artist",
+                "album": "Cached Album",
+                "title": "Cached Title",
+            },
         )
         aud_db.close()
 
@@ -765,10 +818,18 @@ class TestImportAudio:
             title=None,
         )
         with (
-            patch("undisorder.importer.extract_audio_batch", return_value={
-                source / "song.mp3": audio_meta,
-            }),
-            patch("undisorder.importer.identify_audio", wraps=__import__("undisorder.musicbrainz", fromlist=["identify_audio"]).identify_audio),
+            patch(
+                "undisorder.importer.extract_audio_batch",
+                return_value={
+                    source / "song.mp3": audio_meta,
+                },
+            ),
+            patch(
+                "undisorder.importer.identify_audio",
+                wraps=__import__(
+                    "undisorder.musicbrainz", fromlist=["identify_audio"]
+                ).identify_audio,
+            ),
             patch("undisorder.musicbrainz.fingerprint_audio") as mock_fp,
         ):
             with caplog.at_level(logging.INFO, logger="undisorder"):
@@ -778,27 +839,38 @@ class TestImportAudio:
         mock_fp.assert_not_called()
         assert "cached" in caplog.text.lower()
 
-    def test_move_with_identify_deletes_source_after_success(self, tmp_path: pathlib.Path):
+    def test_move_with_identify_deletes_source_after_success(
+        self, tmp_path: pathlib.Path
+    ):
         """With --move + --identify, source is deleted only after tag write + db insert."""
         source = tmp_path / "source"
         source.mkdir()
         (source / "song.mp3").write_bytes(b"\xff\xfb\x90\x00move identify")
 
-        args = self._make_args(tmp_path, move=True, identify=True, acoustid_key="test-key")
+        args = self._make_args(
+            tmp_path, move=True, identify=True, acoustid_key="test-key"
+        )
 
         audio_meta = AudioMetadata(
             source_path=source / "song.mp3",
-            artist=None, album=None, title=None,
+            artist=None,
+            album=None,
+            title=None,
         )
         identified_meta = AudioMetadata(
             source_path=source / "song.mp3",
-            artist="Identified Artist", album="Identified Album",
-            title="Identified Title", track_number=1,
+            artist="Identified Artist",
+            album="Identified Album",
+            title="Identified Title",
+            track_number=1,
         )
         with (
-            patch("undisorder.importer.extract_audio_batch", return_value={
-                source / "song.mp3": audio_meta,
-            }),
+            patch(
+                "undisorder.importer.extract_audio_batch",
+                return_value={
+                    source / "song.mp3": audio_meta,
+                },
+            ),
             patch("undisorder.importer.identify_audio", return_value=identified_meta),
             patch("undisorder.importer.write_audio_tags"),
         ):
@@ -808,8 +880,10 @@ class TestImportAudio:
         assert not (source / "song.mp3").exists()
         # Target should exist
         found = [
-            f for dirpath, _, files in os.walk(tmp_path / "musik")
-            for f in files if f.endswith(".mp3")
+            f
+            for dirpath, _, files in os.walk(tmp_path / "musik")
+            for f in files
+            if f.endswith(".mp3")
         ]
         assert len(found) == 1
 
@@ -823,14 +897,19 @@ class TestImportAudio:
 
         audio_meta = AudioMetadata(
             source_path=source / "song.mp3",
-            artist="Original Artist", album="Original Album",
-            title="Original Title", track_number=1,
+            artist="Original Artist",
+            album="Original Album",
+            title="Original Title",
+            track_number=1,
         )
         # identify_audio returns the same object (no improvement)
         with (
-            patch("undisorder.importer.extract_audio_batch", return_value={
-                source / "song.mp3": audio_meta,
-            }),
+            patch(
+                "undisorder.importer.extract_audio_batch",
+                return_value={
+                    source / "song.mp3": audio_meta,
+                },
+            ),
             patch("undisorder.importer.identify_audio", return_value=audio_meta),
             patch("undisorder.importer.write_audio_tags") as mock_write_tags,
         ):
@@ -851,12 +930,18 @@ class TestImportAudio:
 
         audio_meta = AudioMetadata(
             source_path=source / "song.mp3",
-            artist="Artist", album="Album", title="Song", track_number=1,
+            artist="Artist",
+            album="Album",
+            title="Song",
+            track_number=1,
         )
         with (
-            patch("undisorder.importer.extract_audio_batch", return_value={
-                source / "song.mp3": audio_meta,
-            }),
+            patch(
+                "undisorder.importer.extract_audio_batch",
+                return_value={
+                    source / "song.mp3": audio_meta,
+                },
+            ),
             pytest.raises(SystemExit, match="1"),
         ):
             run_import(args)
@@ -867,16 +952,24 @@ class TestImportAudio:
         source.mkdir()
         (source / "song.mp3").write_bytes(b"\xff\xfb\x90\x00dry run identify")
 
-        args = self._make_args(tmp_path, dry_run=True, identify=True, acoustid_key="test-key")
+        args = self._make_args(
+            tmp_path, dry_run=True, identify=True, acoustid_key="test-key"
+        )
 
         audio_meta = AudioMetadata(
             source_path=source / "song.mp3",
-            artist="Artist", album="Album", title="Song", track_number=1,
+            artist="Artist",
+            album="Album",
+            title="Song",
+            track_number=1,
         )
         with (
-            patch("undisorder.importer.extract_audio_batch", return_value={
-                source / "song.mp3": audio_meta,
-            }),
+            patch(
+                "undisorder.importer.extract_audio_batch",
+                return_value={
+                    source / "song.mp3": audio_meta,
+                },
+            ),
             patch("undisorder.importer.identify_audio") as mock_identify,
         ):
             with caplog.at_level(logging.INFO, logger="undisorder"):
@@ -895,18 +988,27 @@ class TestImportAudio:
         args = self._make_args(tmp_path)
         audio_meta = AudioMetadata(
             source_path=source / "song.mp3",
-            artist="Artist", album="Album", title="Song", track_number=1,
+            artist="Artist",
+            album="Album",
+            title="Song",
+            track_number=1,
         )
-        with patch("undisorder.importer.extract_audio_batch", return_value={
-            source / "song.mp3": audio_meta,
-        }):
+        with patch(
+            "undisorder.importer.extract_audio_batch",
+            return_value={
+                source / "song.mp3": audio_meta,
+            },
+        ):
             run_import(args)
 
         # Second: dry-run import of the same file — should show "skipping"
         args2 = self._make_args(tmp_path, dry_run=True)
-        with patch("undisorder.importer.extract_audio_batch", return_value={
-            source / "song.mp3": audio_meta,
-        }):
+        with patch(
+            "undisorder.importer.extract_audio_batch",
+            return_value={
+                source / "song.mp3": audio_meta,
+            },
+        ):
             with caplog.at_level(logging.INFO, logger="undisorder"):
                 run_import(args2)
 
@@ -948,11 +1050,17 @@ class TestProgressLogging:
 
         audio_meta = AudioMetadata(
             source_path=source / "song.mp3",
-            artist="Artist", album="Album", title="Song", track_number=1,
+            artist="Artist",
+            album="Album",
+            title="Song",
+            track_number=1,
         )
-        with patch("undisorder.importer.extract_audio_batch", return_value={
-            source / "song.mp3": audio_meta,
-        }):
+        with patch(
+            "undisorder.importer.extract_audio_batch",
+            return_value={
+                source / "song.mp3": audio_meta,
+            },
+        ):
             with caplog.at_level(logging.INFO, logger="undisorder"):
                 run_import(args)
 
@@ -973,16 +1081,25 @@ class TestProgressLogging:
 
         audio_meta1 = AudioMetadata(
             source_path=dir_a / "s1.mp3",
-            artist="Artist", album="Album1", title="Song1", track_number=1,
+            artist="Artist",
+            album="Album1",
+            title="Song1",
+            track_number=1,
         )
         audio_meta2 = AudioMetadata(
             source_path=dir_b / "s2.mp3",
-            artist="Artist", album="Album2", title="Song2", track_number=1,
+            artist="Artist",
+            album="Album2",
+            title="Song2",
+            track_number=1,
         )
-        with patch("undisorder.importer.extract_audio_batch", return_value={
-            dir_a / "s1.mp3": audio_meta1,
-            dir_b / "s2.mp3": audio_meta2,
-        }):
+        with patch(
+            "undisorder.importer.extract_audio_batch",
+            return_value={
+                dir_a / "s1.mp3": audio_meta1,
+                dir_b / "s2.mp3": audio_meta2,
+            },
+        ):
             with caplog.at_level(logging.INFO, logger="undisorder"):
                 run_import(args)
 
@@ -1001,6 +1118,7 @@ class TestProgressLogging:
             from undisorder.metadata import Metadata
 
             import datetime
+
             mock_extract.return_value = {
                 source / "photo.jpg": Metadata(
                     source_path=source / "photo.jpg",
@@ -1026,6 +1144,7 @@ class TestProgressLogging:
             from undisorder.metadata import Metadata
 
             import datetime
+
             mock_extract.return_value = {
                 source / "a.jpg": Metadata(
                     source_path=source / "a.jpg",
@@ -1053,16 +1172,25 @@ class TestProgressLogging:
 
         audio_meta1 = AudioMetadata(
             source_path=source / "s1.mp3",
-            artist="Artist", album="Album", title="Song1", track_number=1,
+            artist="Artist",
+            album="Album",
+            title="Song1",
+            track_number=1,
         )
         audio_meta2 = AudioMetadata(
             source_path=source / "s2.mp3",
-            artist="Artist", album="Album", title="Song2", track_number=2,
+            artist="Artist",
+            album="Album",
+            title="Song2",
+            track_number=2,
         )
-        with patch("undisorder.importer.extract_audio_batch", return_value={
-            source / "s1.mp3": audio_meta1,
-            source / "s2.mp3": audio_meta2,
-        }):
+        with patch(
+            "undisorder.importer.extract_audio_batch",
+            return_value={
+                source / "s1.mp3": audio_meta1,
+                source / "s2.mp3": audio_meta2,
+            },
+        ):
             with caplog.at_level(logging.INFO, logger="undisorder"):
                 run_import(args)
 
@@ -1082,9 +1210,12 @@ class TestProgressLogging:
             artist=None,
         )
         with (
-            patch("undisorder.importer.extract_audio_batch", return_value={
-                source / "song.mp3": audio_meta,
-            }),
+            patch(
+                "undisorder.importer.extract_audio_batch",
+                return_value={
+                    source / "song.mp3": audio_meta,
+                },
+            ),
             patch("undisorder.importer.identify_audio", return_value=audio_meta),
         ):
             with caplog.at_level(logging.INFO, logger="undisorder"):
@@ -1132,6 +1263,7 @@ class TestDryRunGrouped:
             from undisorder.metadata import Metadata
 
             import datetime
+
             mock_extract.return_value = {
                 source / name: Metadata(
                     source_path=source / name,
@@ -1160,6 +1292,7 @@ class TestDryRunGrouped:
             from undisorder.metadata import Metadata
 
             import datetime
+
             mock_extract.return_value = {
                 source / "march.jpg": Metadata(
                     source_path=source / "march.jpg",
@@ -1187,16 +1320,25 @@ class TestDryRunGrouped:
 
         audio_meta1 = AudioMetadata(
             source_path=source / "song1.mp3",
-            artist="Artist", album="Album", title="Song1", track_number=1,
+            artist="Artist",
+            album="Album",
+            title="Song1",
+            track_number=1,
         )
         audio_meta2 = AudioMetadata(
             source_path=source / "song2.mp3",
-            artist="Artist", album="Album", title="Song2", track_number=2,
+            artist="Artist",
+            album="Album",
+            title="Song2",
+            track_number=2,
         )
-        with patch("undisorder.importer.extract_audio_batch", return_value={
-            source / "song1.mp3": audio_meta1,
-            source / "song2.mp3": audio_meta2,
-        }):
+        with patch(
+            "undisorder.importer.extract_audio_batch",
+            return_value={
+                source / "song1.mp3": audio_meta1,
+                source / "song2.mp3": audio_meta2,
+            },
+        ):
             with caplog.at_level(logging.INFO, logger="undisorder"):
                 run_import(args)
 
@@ -1215,6 +1357,7 @@ class TestDryRunGrouped:
             from undisorder.metadata import Metadata
 
             import datetime
+
             mock_extract.return_value = {
                 source / "photo.jpg": Metadata(
                     source_path=source / "photo.jpg",
@@ -1264,6 +1407,7 @@ class TestImportExclude:
             from undisorder.metadata import Metadata
 
             import datetime
+
             mock_extract.return_value = {
                 source / "photo.jpg": Metadata(
                     source_path=source / "photo.jpg",
@@ -1291,6 +1435,7 @@ class TestImportExclude:
             from undisorder.metadata import Metadata
 
             import datetime
+
             mock_extract.return_value = {
                 source / "photo.jpg": Metadata(
                     source_path=source / "photo.jpg",
@@ -1316,12 +1461,15 @@ class TestImportExclude:
 
         accepted_dirs = {pathlib.PurePosixPath("vacation")}
         with (
-            patch("undisorder.importer.interactive_select", return_value=accepted_dirs) as mock_select,
+            patch(
+                "undisorder.importer.interactive_select", return_value=accepted_dirs
+            ) as mock_select,
             patch("undisorder.importer.extract_batch") as mock_extract,
         ):
             from undisorder.metadata import Metadata
 
             import datetime
+
             mock_extract.return_value = {
                 vacation / "photo.jpg": Metadata(
                     source_path=vacation / "photo.jpg",
@@ -1388,11 +1536,17 @@ class TestImportEdgeCases:
 
         audio_meta = AudioMetadata(
             source_path=source / "song.mp3",
-            artist="Artist", album="Album", title="Song", track_number=1,
+            artist="Artist",
+            album="Album",
+            title="Song",
+            track_number=1,
         )
-        with patch("undisorder.importer.extract_audio_batch", return_value={
-            source / "song.mp3": audio_meta,
-        }):
+        with patch(
+            "undisorder.importer.extract_audio_batch",
+            return_value={
+                source / "song.mp3": audio_meta,
+            },
+        ):
             with caplog.at_level(logging.INFO, logger="undisorder"):
                 run_import(args)
 
@@ -1408,7 +1562,9 @@ class TestImportEdgeCases:
 
         args = self._make_args(tmp_path, select=True)
 
-        with patch("undisorder.importer.interactive_select", side_effect=KeyboardInterrupt):
+        with patch(
+            "undisorder.importer.interactive_select", side_effect=KeyboardInterrupt
+        ):
             with caplog.at_level(logging.INFO, logger="undisorder"):
                 run_import(args)
 
@@ -1432,7 +1588,6 @@ class TestImportEdgeCases:
         args.dry_run = True
         args.move = False
 
-
         args.exclude = []
         args.exclude_dir = []
         args.select = False
@@ -1441,6 +1596,7 @@ class TestImportEdgeCases:
             from undisorder.metadata import Metadata
 
             import datetime
+
             mock_extract.return_value = {
                 source / "photo.jpg": Metadata(
                     source_path=source / "photo.jpg",
@@ -1495,8 +1651,10 @@ class TestFailureLogging:
                 raise ValueError(f"error {i}")
             except ValueError as exc:
                 _log_failure(
-                    pathlib.PurePosixPath(f"dir{i}"), "audio",
-                    [pathlib.Path(f"/src/dir{i}/file.mp3")], exc,
+                    pathlib.PurePosixPath(f"dir{i}"),
+                    "audio",
+                    [pathlib.Path(f"/src/dir{i}/file.mp3")],
+                    exc,
                 )
 
         log_path = config_dir / "import_failures.jsonl"
@@ -1517,8 +1675,10 @@ class TestFailureLogging:
             raise RuntimeError("something broke")
         except RuntimeError as exc:
             _log_failure(
-                pathlib.PurePosixPath("."), "photo_video",
-                [pathlib.Path("/src/photo.jpg")], exc,
+                pathlib.PurePosixPath("."),
+                "photo_video",
+                [pathlib.Path("/src/photo.jpg")],
+                exc,
             )
 
         log_path = config_dir / "import_failures.jsonl"
@@ -1545,7 +1705,6 @@ class TestFailureLogging:
         args.dry_run = False
         args.move = False
 
-
         args.exclude = []
         args.exclude_dir = []
         args.select = False
@@ -1557,6 +1716,7 @@ class TestFailureLogging:
             from undisorder.metadata import Metadata
 
             import datetime
+
             mock_extract.return_value = {
                 dir_a / "bad.jpg": Metadata(
                     source_path=dir_a / "bad.jpg",
@@ -1564,7 +1724,9 @@ class TestFailureLogging:
                 ),
             }
             # Make hash_file raise for all files
-            with patch("undisorder.importer.hash_file", side_effect=OSError("disk error")):
+            with patch(
+                "undisorder.importer.hash_file", side_effect=OSError("disk error")
+            ):
                 with caplog.at_level(logging.WARNING, logger="undisorder"):
                     run_import(args)
 

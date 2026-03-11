@@ -10,7 +10,6 @@ import logging
 import pathlib
 import subprocess
 
-
 logger = logging.getLogger(__name__)
 
 
@@ -91,7 +90,9 @@ def extract(path: pathlib.Path) -> Metadata:
     return _parse_one(results[0], path)
 
 
-def extract_batch(paths: list[pathlib.Path], batch_size: int = 100) -> dict[pathlib.Path, Metadata]:
+def extract_batch(
+    paths: list[pathlib.Path], batch_size: int = 100
+) -> dict[pathlib.Path, Metadata]:
     """Extract metadata from multiple files, calling exiftool in batches."""
     if not paths:
         return {}

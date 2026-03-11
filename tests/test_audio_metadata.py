@@ -58,9 +58,18 @@ class TestExtractAudio:
             "date": ["1969"],
             "genre": ["Rock"],
         }[key]
-        mock_file.__contains__ = lambda self, key: key in {
-            "artist", "album", "title", "tracknumber", "discnumber", "date", "genre"
-        }
+        mock_file.__contains__ = lambda self, key: (
+            key
+            in {
+                "artist",
+                "album",
+                "title",
+                "tracknumber",
+                "discnumber",
+                "date",
+                "genre",
+            }
+        )
         with patch("undisorder.audio_metadata.mutagen.File", return_value=mock_file):
             m = extract_audio(pathlib.Path("/fake/song.mp3"))
         assert m.artist == "The Beatles"
@@ -80,9 +89,9 @@ class TestExtractAudio:
             "tracknumber": ["4"],
             "date": ["1973"],
         }[key]
-        mock_file.__contains__ = lambda self, key: key in {
-            "artist", "album", "title", "tracknumber", "date"
-        }
+        mock_file.__contains__ = lambda self, key: (
+            key in {"artist", "album", "title", "tracknumber", "date"}
+        )
         with patch("undisorder.audio_metadata.mutagen.File", return_value=mock_file):
             m = extract_audio(pathlib.Path("/fake/track.flac"))
         assert m.artist == "Pink Floyd"
@@ -103,9 +112,9 @@ class TestExtractAudio:
             "date": ["1997"],
             "genre": ["Alternative Rock"],
         }[key]
-        mock_file.__contains__ = lambda self, key: key in {
-            "artist", "album", "title", "tracknumber", "date", "genre"
-        }
+        mock_file.__contains__ = lambda self, key: (
+            key in {"artist", "album", "title", "tracknumber", "date", "genre"}
+        )
         with patch("undisorder.audio_metadata.mutagen.File", return_value=mock_file):
             m = extract_audio(pathlib.Path("/fake/song.m4a"))
         assert m.artist == "Radiohead"
@@ -133,7 +142,9 @@ class TestExtractAudio:
         assert m.title is None
 
     def test_handles_mutagen_exception(self):
-        with patch("undisorder.audio_metadata.mutagen.File", side_effect=Exception("bad file")):
+        with patch(
+            "undisorder.audio_metadata.mutagen.File", side_effect=Exception("bad file")
+        ):
             m = extract_audio(pathlib.Path("/fake/bad.mp3"))
         assert m.artist is None
         assert m.album is None
@@ -180,7 +191,10 @@ class TestExtractAudioBatch:
             "/fake/a.mp3": make_mock("Artist A"),
             "/fake/b.flac": make_mock("Artist B"),
         }
-        with patch("undisorder.audio_metadata.mutagen.File", side_effect=lambda p, easy: mocks[str(p)]):
+        with patch(
+            "undisorder.audio_metadata.mutagen.File",
+            side_effect=lambda p, easy: mocks[str(p)],
+        ):
             paths = [pathlib.Path("/fake/a.mp3"), pathlib.Path("/fake/b.flac")]
             results = extract_audio_batch(paths)
         assert len(results) == 2

@@ -15,12 +15,18 @@ class TestFingerprintAudio:
     """Test local audio fingerprinting."""
 
     def test_returns_duration_and_fingerprint(self):
-        with patch("undisorder.musicbrainz.acoustid.fingerprint_file", return_value=(240.5, "AQAA...")):
+        with patch(
+            "undisorder.musicbrainz.acoustid.fingerprint_file",
+            return_value=(240.5, "AQAA..."),
+        ):
             result = fingerprint_audio(pathlib.Path("/fake/song.mp3"))
         assert result == (240.5, "AQAA...")
 
     def test_returns_none_on_exception(self):
-        with patch("undisorder.musicbrainz.acoustid.fingerprint_file", side_effect=Exception("fpcalc not found")):
+        with patch(
+            "undisorder.musicbrainz.acoustid.fingerprint_file",
+            side_effect=Exception("fpcalc not found"),
+        ):
             result = fingerprint_audio(pathlib.Path("/fake/song.mp3"))
         assert result is None
 
@@ -31,13 +37,17 @@ class TestLookupAcoustid:
     def test_returns_recording_id(self):
         mock_response = {
             "status": "ok",
-            "results": [{
-                "id": "acoustid-uuid",
-                "score": 0.98,
-                "recordings": [{"id": "mb-recording-456"}],
-            }],
+            "results": [
+                {
+                    "id": "acoustid-uuid",
+                    "score": 0.98,
+                    "recordings": [{"id": "mb-recording-456"}],
+                }
+            ],
         }
-        with patch("undisorder.musicbrainz.acoustid.lookup", return_value=mock_response):
+        with patch(
+            "undisorder.musicbrainz.acoustid.lookup", return_value=mock_response
+        ):
             result = lookup_acoustid("AQAA...", 240.5, api_key="test-key")
         assert result == "mb-recording-456"
 
@@ -47,7 +57,9 @@ class TestLookupAcoustid:
 
     def test_returns_none_on_no_results(self):
         mock_response = {"status": "ok", "results": []}
-        with patch("undisorder.musicbrainz.acoustid.lookup", return_value=mock_response):
+        with patch(
+            "undisorder.musicbrainz.acoustid.lookup", return_value=mock_response
+        ):
             result = lookup_acoustid("AQAA...", 240.5, api_key="test-key")
         assert result is None
 
@@ -56,12 +68,17 @@ class TestLookupAcoustid:
             "status": "ok",
             "results": [{"id": "acoustid-uuid", "score": 0.5, "recordings": []}],
         }
-        with patch("undisorder.musicbrainz.acoustid.lookup", return_value=mock_response):
+        with patch(
+            "undisorder.musicbrainz.acoustid.lookup", return_value=mock_response
+        ):
             result = lookup_acoustid("AQAA...", 240.5, api_key="test-key")
         assert result is None
 
     def test_returns_none_on_exception(self):
-        with patch("undisorder.musicbrainz.acoustid.lookup", side_effect=Exception("network error")):
+        with patch(
+            "undisorder.musicbrainz.acoustid.lookup",
+            side_effect=Exception("network error"),
+        ):
             result = lookup_acoustid("AQAA...", 240.5, api_key="test-key")
         assert result is None
 
@@ -73,9 +90,7 @@ class TestLookupMusicbrainz:
         mock_result = {
             "recording": {
                 "title": "Come Together",
-                "artist-credit": [
-                    {"artist": {"name": "The Beatles"}}
-                ],
+                "artist-credit": [{"artist": {"name": "The Beatles"}}],
                 "release-list": [
                     {
                         "title": "Abbey Road",
@@ -92,7 +107,10 @@ class TestLookupMusicbrainz:
                 ],
             }
         }
-        with patch("undisorder.musicbrainz.musicbrainzngs.get_recording_by_id", return_value=mock_result):
+        with patch(
+            "undisorder.musicbrainz.musicbrainzngs.get_recording_by_id",
+            return_value=mock_result,
+        ):
             meta = lookup_musicbrainz("rec-id")
         assert meta is not None
         assert meta.artist == "The Beatles"
@@ -112,12 +130,13 @@ class TestLookupMusicbrainz:
         mock_result = {
             "recording": {
                 "title": "Unknown Track",
-                "artist-credit": [
-                    {"artist": {"name": "Unknown Artist"}}
-                ],
+                "artist-credit": [{"artist": {"name": "Unknown Artist"}}],
             }
         }
-        with patch("undisorder.musicbrainz.musicbrainzngs.get_recording_by_id", return_value=mock_result):
+        with patch(
+            "undisorder.musicbrainz.musicbrainzngs.get_recording_by_id",
+            return_value=mock_result,
+        ):
             meta = lookup_musicbrainz("rec-id")
         assert meta is not None
         assert meta.title == "Unknown Track"
@@ -158,11 +177,18 @@ class TestIdentifyAudio:
             year=2020,
         )
         with (
-            patch("undisorder.musicbrainz.fingerprint_audio", return_value=(240.0, "FP...")),
+            patch(
+                "undisorder.musicbrainz.fingerprint_audio",
+                return_value=(240.0, "FP..."),
+            ),
             patch("undisorder.musicbrainz.lookup_acoustid", return_value="rec-id"),
-            patch("undisorder.musicbrainz.lookup_musicbrainz", return_value=lookup_meta),
+            patch(
+                "undisorder.musicbrainz.lookup_musicbrainz", return_value=lookup_meta
+            ),
         ):
-            result = identify_audio(pathlib.Path("/fake/song.mp3"), existing, api_key="key")
+            result = identify_audio(
+                pathlib.Path("/fake/song.mp3"), existing, api_key="key"
+            )
         assert result.artist == "Discovered Artist"
         assert result.album == "Discovered Album"
         assert result.title == "Discovered Title"
@@ -183,11 +209,18 @@ class TestIdentifyAudio:
             title="Lookup Title",
         )
         with (
-            patch("undisorder.musicbrainz.fingerprint_audio", return_value=(240.0, "FP...")),
+            patch(
+                "undisorder.musicbrainz.fingerprint_audio",
+                return_value=(240.0, "FP..."),
+            ),
             patch("undisorder.musicbrainz.lookup_acoustid", return_value="rec-id"),
-            patch("undisorder.musicbrainz.lookup_musicbrainz", return_value=lookup_meta),
+            patch(
+                "undisorder.musicbrainz.lookup_musicbrainz", return_value=lookup_meta
+            ),
         ):
-            result = identify_audio(pathlib.Path("/fake/song.mp3"), existing, api_key="key")
+            result = identify_audio(
+                pathlib.Path("/fake/song.mp3"), existing, api_key="key"
+            )
         assert result.artist == "Different Artist"  # lookup wins
         assert result.album == "Lookup Album"  # filled
         assert result.title == "Lookup Title"  # filled
@@ -208,11 +241,18 @@ class TestIdentifyAudio:
             title="Lookup Title",
         )
         with (
-            patch("undisorder.musicbrainz.fingerprint_audio", return_value=(240.0, "FP...")),
+            patch(
+                "undisorder.musicbrainz.fingerprint_audio",
+                return_value=(240.0, "FP..."),
+            ),
             patch("undisorder.musicbrainz.lookup_acoustid", return_value="rec-id"),
-            patch("undisorder.musicbrainz.lookup_musicbrainz", return_value=lookup_meta),
+            patch(
+                "undisorder.musicbrainz.lookup_musicbrainz", return_value=lookup_meta
+            ),
         ):
-            result = identify_audio(pathlib.Path("/fake/song.mp3"), existing, api_key="key")
+            result = identify_audio(
+                pathlib.Path("/fake/song.mp3"), existing, api_key="key"
+            )
         assert result.artist == "My Artist"  # fallback to existing
         assert result.album == "My Album"  # fallback to existing
         assert result.title == "Lookup Title"  # lookup wins
@@ -224,7 +264,9 @@ class TestIdentifyAudio:
             artist=None,
         )
         with patch("undisorder.musicbrainz.fingerprint_audio", return_value=None):
-            result = identify_audio(pathlib.Path("/fake/song.mp3"), existing, api_key="key")
+            result = identify_audio(
+                pathlib.Path("/fake/song.mp3"), existing, api_key="key"
+            )
         assert result is existing
 
     def test_returns_existing_when_acoustid_fails(self):
@@ -233,10 +275,15 @@ class TestIdentifyAudio:
             artist=None,
         )
         with (
-            patch("undisorder.musicbrainz.fingerprint_audio", return_value=(240.0, "FP...")),
+            patch(
+                "undisorder.musicbrainz.fingerprint_audio",
+                return_value=(240.0, "FP..."),
+            ),
             patch("undisorder.musicbrainz.lookup_acoustid", return_value=None),
         ):
-            result = identify_audio(pathlib.Path("/fake/song.mp3"), existing, api_key="key")
+            result = identify_audio(
+                pathlib.Path("/fake/song.mp3"), existing, api_key="key"
+            )
         assert result is existing
 
     def test_returns_existing_when_musicbrainz_fails(self):
@@ -245,11 +292,16 @@ class TestIdentifyAudio:
             artist=None,
         )
         with (
-            patch("undisorder.musicbrainz.fingerprint_audio", return_value=(240.0, "FP...")),
+            patch(
+                "undisorder.musicbrainz.fingerprint_audio",
+                return_value=(240.0, "FP..."),
+            ),
             patch("undisorder.musicbrainz.lookup_acoustid", return_value="rec-id"),
             patch("undisorder.musicbrainz.lookup_musicbrainz", return_value=None),
         ):
-            result = identify_audio(pathlib.Path("/fake/song.mp3"), existing, api_key="key")
+            result = identify_audio(
+                pathlib.Path("/fake/song.mp3"), existing, api_key="key"
+            )
         assert result is existing
 
     def test_no_api_key_skips_lookup(self):
@@ -290,8 +342,11 @@ class TestIdentifyAudioCache:
         )
         with patch("undisorder.musicbrainz.fingerprint_audio") as mock_fp:
             result = identify_audio(
-                pathlib.Path("/fake/song.mp3"), existing, api_key="key",
-                file_hash="cached-hash", db=db,
+                pathlib.Path("/fake/song.mp3"),
+                existing,
+                api_key="key",
+                file_hash="cached-hash",
+                db=db,
             )
             mock_fp.assert_not_called()
 
@@ -310,7 +365,11 @@ class TestIdentifyAudioCache:
             fingerprint="FP...",
             duration=240.0,
             recording_id="rec-cached",
-            metadata={"artist": "Cached Artist", "album": "Cached Album", "title": "Cached Title"},
+            metadata={
+                "artist": "Cached Artist",
+                "album": "Cached Album",
+                "title": "Cached Title",
+            },
         )
 
         existing = AudioMetadata(
@@ -320,14 +379,19 @@ class TestIdentifyAudioCache:
             title=None,
         )
         result = identify_audio(
-            pathlib.Path("/fake/song.mp3"), existing, api_key="key",
-            file_hash="cached-hash", db=db,
+            pathlib.Path("/fake/song.mp3"),
+            existing,
+            api_key="key",
+            file_hash="cached-hash",
+            db=db,
         )
         assert result.artist == "Cached Artist"  # lookup wins
         assert result.album == "Cached Album"  # filled from cache
         db.close()
 
-    def test_cache_hit_existing_wins_when_lookup_field_missing(self, tmp_path, tmp_target):
+    def test_cache_hit_existing_wins_when_lookup_field_missing(
+        self, tmp_path, tmp_target
+    ):
         """When cached field is None, existing tag data is used as fallback."""
         db = HashDB(tmp_target, db_path=tmp_path / "test.db")
         db.store_acoustid_cache(
@@ -345,8 +409,11 @@ class TestIdentifyAudioCache:
             title="My Title",
         )
         result = identify_audio(
-            pathlib.Path("/fake/song.mp3"), existing, api_key="key",
-            file_hash="cached-hash", db=db,
+            pathlib.Path("/fake/song.mp3"),
+            existing,
+            api_key="key",
+            file_hash="cached-hash",
+            db=db,
         )
         assert result.artist == "My Artist"  # fallback to existing
         assert result.album == "Cached Album"  # lookup wins
@@ -369,13 +436,21 @@ class TestIdentifyAudioCache:
             year=2021,
         )
         with (
-            patch("undisorder.musicbrainz.fingerprint_audio", return_value=(180.0, "FP-NEW")),
+            patch(
+                "undisorder.musicbrainz.fingerprint_audio",
+                return_value=(180.0, "FP-NEW"),
+            ),
             patch("undisorder.musicbrainz.lookup_acoustid", return_value="rec-new"),
-            patch("undisorder.musicbrainz.lookup_musicbrainz", return_value=lookup_meta),
+            patch(
+                "undisorder.musicbrainz.lookup_musicbrainz", return_value=lookup_meta
+            ),
         ):
             identify_audio(
-                pathlib.Path("/fake/song.mp3"), existing, api_key="key",
-                file_hash="new-hash", db=db,
+                pathlib.Path("/fake/song.mp3"),
+                existing,
+                api_key="key",
+                file_hash="new-hash",
+                db=db,
             )
 
         cached = db.get_acoustid_cache("new-hash")
@@ -404,8 +479,11 @@ class TestIdentifyAudioCache:
             title="My Title",
         )
         result = identify_audio(
-            pathlib.Path("/fake/song.mp3"), existing, api_key="key",
-            file_hash="empty-cache-hash", db=db,
+            pathlib.Path("/fake/song.mp3"),
+            existing,
+            api_key="key",
+            file_hash="empty-cache-hash",
+            db=db,
         )
         assert result is existing
         db.close()
@@ -419,12 +497,18 @@ class TestIdentifyAudioCache:
             artist=None,
         )
         with (
-            patch("undisorder.musicbrainz.fingerprint_audio", return_value=(180.0, "FP-FAIL")),
+            patch(
+                "undisorder.musicbrainz.fingerprint_audio",
+                return_value=(180.0, "FP-FAIL"),
+            ),
             patch("undisorder.musicbrainz.lookup_acoustid", return_value=None),
         ):
             identify_audio(
-                pathlib.Path("/fake/song.mp3"), existing, api_key="key",
-                file_hash="fail-hash", db=db,
+                pathlib.Path("/fake/song.mp3"),
+                existing,
+                api_key="key",
+                file_hash="fail-hash",
+                db=db,
             )
 
         cached = db.get_acoustid_cache("fail-hash")
@@ -445,12 +529,18 @@ class TestIdentifyAudioCache:
             artist="Artist",
         )
         with (
-            patch("undisorder.musicbrainz.fingerprint_audio", return_value=(180.0, "FP")),
+            patch(
+                "undisorder.musicbrainz.fingerprint_audio", return_value=(180.0, "FP")
+            ),
             patch("undisorder.musicbrainz.lookup_acoustid", return_value="rec-id"),
-            patch("undisorder.musicbrainz.lookup_musicbrainz", return_value=lookup_meta),
+            patch(
+                "undisorder.musicbrainz.lookup_musicbrainz", return_value=lookup_meta
+            ),
         ):
             result = identify_audio(
-                pathlib.Path("/fake/song.mp3"), existing, api_key="key",
+                pathlib.Path("/fake/song.mp3"),
+                existing,
+                api_key="key",
             )
         assert result.artist == "Artist"
 
@@ -465,12 +555,19 @@ class TestIdentifyAudioCache:
             artist="Artist",
         )
         with (
-            patch("undisorder.musicbrainz.fingerprint_audio", return_value=(180.0, "FP")),
+            patch(
+                "undisorder.musicbrainz.fingerprint_audio", return_value=(180.0, "FP")
+            ),
             patch("undisorder.musicbrainz.lookup_acoustid", return_value="rec-id"),
-            patch("undisorder.musicbrainz.lookup_musicbrainz", return_value=lookup_meta),
+            patch(
+                "undisorder.musicbrainz.lookup_musicbrainz", return_value=lookup_meta
+            ),
         ):
             result = identify_audio(
-                pathlib.Path("/fake/song.mp3"), existing, api_key="key",
-                db=None, file_hash=None,
+                pathlib.Path("/fake/song.mp3"),
+                existing,
+                api_key="key",
+                db=None,
+                file_hash=None,
             )
         assert result.artist == "Artist"

@@ -8,7 +8,6 @@ import logging
 import mutagen
 import pathlib
 
-
 logger = logging.getLogger(__name__)
 
 
@@ -87,7 +86,9 @@ def write_audio_tags(path: pathlib.Path, meta: AudioMetadata) -> None:
     """Write metadata tags to an audio file using mutagen."""
     tags = mutagen.File(path, easy=True)
     if tags is None:
-        logger.warning(f"Cannot write tags to {path.name} (format not supported for tag writing)")
+        logger.warning(
+            f"Cannot write tags to {path.name} (format not supported for tag writing)"
+        )
         return
     if meta.artist:
         tags["artist"] = meta.artist

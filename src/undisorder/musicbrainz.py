@@ -29,7 +29,10 @@ def fingerprint_audio(path: pathlib.Path) -> tuple[float, str] | None:
 
 
 def lookup_acoustid(
-    fingerprint: str, duration: float, *, api_key: str | None,
+    fingerprint: str,
+    duration: float,
+    *,
+    api_key: str | None,
 ) -> str | None:
     """Query the AcoustID API with a fingerprint to get a MusicBrainz recording ID."""
     if api_key is None:
@@ -137,8 +140,16 @@ def identify_audio(
                 disc_number=cached["disc_number"],
                 year=cached["year"],
             )
-            if not any([lookup_meta.artist, lookup_meta.album, lookup_meta.title,
-                        lookup_meta.track_number, lookup_meta.disc_number, lookup_meta.year]):
+            if not any(
+                [
+                    lookup_meta.artist,
+                    lookup_meta.album,
+                    lookup_meta.title,
+                    lookup_meta.track_number,
+                    lookup_meta.disc_number,
+                    lookup_meta.year,
+                ]
+            ):
                 return existing_meta
             return AudioMetadata(
                 source_path=existing_meta.source_path,

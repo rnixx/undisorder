@@ -26,7 +26,10 @@ class TestApplyExcludePatterns:
 
         result = ScanResult(photos=[jpg], audios=[wav])
         filtered = apply_exclude_patterns(
-            result, tmp_path, exclude_file=["*.wav"], exclude_dir=[],
+            result,
+            tmp_path,
+            exclude_file=["*.wav"],
+            exclude_dir=[],
         )
         assert filtered.audios == []
         assert filtered.photos == [jpg]
@@ -41,7 +44,10 @@ class TestApplyExcludePatterns:
 
         result = ScanResult(photos=[jpg], audios=[wav])
         filtered = apply_exclude_patterns(
-            result, tmp_path, exclude_file=[], exclude_dir=["DAW*"],
+            result,
+            tmp_path,
+            exclude_file=[],
+            exclude_dir=["DAW*"],
         )
         assert filtered.audios == []
         assert filtered.photos == [jpg]
@@ -54,7 +60,10 @@ class TestApplyExcludePatterns:
 
         result = ScanResult(audios=[wav])
         filtered = apply_exclude_patterns(
-            result, tmp_path, exclude_file=[], exclude_dir=["DAW*"],
+            result,
+            tmp_path,
+            exclude_file=[],
+            exclude_dir=["DAW*"],
         )
         assert filtered.audios == []
 
@@ -68,7 +77,10 @@ class TestApplyExcludePatterns:
 
         result = ScanResult(audios=[wav, aiff, mp3])
         filtered = apply_exclude_patterns(
-            result, tmp_path, exclude_file=["*.wav", "*.aiff"], exclude_dir=[],
+            result,
+            tmp_path,
+            exclude_file=["*.wav", "*.aiff"],
+            exclude_dir=[],
         )
         assert filtered.audios == [mp3]
 
@@ -78,7 +90,10 @@ class TestApplyExcludePatterns:
 
         result = ScanResult(audios=[wav_upper])
         filtered = apply_exclude_patterns(
-            result, tmp_path, exclude_file=["*.wav"], exclude_dir=[],
+            result,
+            tmp_path,
+            exclude_file=["*.wav"],
+            exclude_dir=[],
         )
         assert filtered.audios == []
 
@@ -90,7 +105,10 @@ class TestApplyExcludePatterns:
 
         result = ScanResult(audios=[wav])
         filtered = apply_exclude_patterns(
-            result, tmp_path, exclude_file=[], exclude_dir=["DAW*"],
+            result,
+            tmp_path,
+            exclude_file=[],
+            exclude_dir=["DAW*"],
         )
         assert filtered.audios == []
 
@@ -100,7 +118,10 @@ class TestApplyExcludePatterns:
 
         result = ScanResult(photos=[jpg])
         filtered = apply_exclude_patterns(
-            result, tmp_path, exclude_file=[], exclude_dir=[],
+            result,
+            tmp_path,
+            exclude_file=[],
+            exclude_dir=[],
         )
         assert filtered.photos == [jpg]
 
@@ -115,10 +136,16 @@ class TestApplyExcludePatterns:
             f.write_bytes(b"data")
 
         result = ScanResult(
-            photos=[photo], videos=[video], audios=[audio], unknown=[unknown],
+            photos=[photo],
+            videos=[video],
+            audios=[audio],
+            unknown=[unknown],
         )
         filtered = apply_exclude_patterns(
-            result, tmp_path, exclude_file=[], exclude_dir=["DAW"],
+            result,
+            tmp_path,
+            exclude_file=[],
+            exclude_dir=["DAW"],
         )
         assert filtered.photos == []
         assert filtered.videos == []
@@ -130,7 +157,10 @@ class TestApplyExcludePatterns:
         jpg.write_bytes(b"image")
         result = ScanResult(photos=[jpg])
         filtered = apply_exclude_patterns(
-            result, tmp_path, exclude_file=[], exclude_dir=[],
+            result,
+            tmp_path,
+            exclude_file=[],
+            exclude_dir=[],
         )
         assert filtered is not result
 
@@ -224,11 +254,13 @@ class TestGroupByDirectory:
             d.mkdir()
             (d / "photo.jpg").write_bytes(b"data")
 
-        result = ScanResult(photos=[
-            tmp_path / "zebra" / "photo.jpg",
-            tmp_path / "alpha" / "photo.jpg",
-            tmp_path / "middle" / "photo.jpg",
-        ])
+        result = ScanResult(
+            photos=[
+                tmp_path / "zebra" / "photo.jpg",
+                tmp_path / "alpha" / "photo.jpg",
+                tmp_path / "middle" / "photo.jpg",
+            ]
+        )
         groups = group_by_directory(result, tmp_path)
         paths = [g.rel_path for g in groups]
         assert paths == [
@@ -246,7 +278,9 @@ class TestGroupByDirectory:
 class TestInteractiveSelect:
     """Test interactive directory selection."""
 
-    def _make_group(self, rel_path: str, *, photo_count=1, total_size=1000) -> DirectoryGroup:
+    def _make_group(
+        self, rel_path: str, *, photo_count=1, total_size=1000
+    ) -> DirectoryGroup:
         return DirectoryGroup(
             rel_path=pathlib.PurePosixPath(rel_path),
             files=[pathlib.Path(f"/fake/{rel_path}/photo.jpg")],
@@ -262,8 +296,10 @@ class TestInteractiveSelect:
         inputs = iter(["y"])
         output = []
         accepted = interactive_select(
-            groups, pathlib.Path("/root"),
-            input_fn=lambda _: next(inputs), print_fn=output.append,
+            groups,
+            pathlib.Path("/root"),
+            input_fn=lambda _: next(inputs),
+            print_fn=output.append,
         )
         assert pathlib.PurePosixPath("vacation") in accepted
 
@@ -272,8 +308,10 @@ class TestInteractiveSelect:
         inputs = iter(["n"])
         output = []
         accepted = interactive_select(
-            groups, pathlib.Path("/root"),
-            input_fn=lambda _: next(inputs), print_fn=output.append,
+            groups,
+            pathlib.Path("/root"),
+            input_fn=lambda _: next(inputs),
+            print_fn=output.append,
         )
         assert accepted == set()
 
@@ -282,8 +320,10 @@ class TestInteractiveSelect:
         inputs = iter(["a"])
         output = []
         accepted = interactive_select(
-            groups, pathlib.Path("/root"),
-            input_fn=lambda _: next(inputs), print_fn=output.append,
+            groups,
+            pathlib.Path("/root"),
+            input_fn=lambda _: next(inputs),
+            print_fn=output.append,
         )
         assert accepted == {
             pathlib.PurePosixPath("a"),
@@ -297,8 +337,10 @@ class TestInteractiveSelect:
         output = []
         with pytest.raises(KeyboardInterrupt):
             interactive_select(
-                groups, pathlib.Path("/root"),
-                input_fn=lambda _: next(inputs), print_fn=output.append,
+                groups,
+                pathlib.Path("/root"),
+                input_fn=lambda _: next(inputs),
+                print_fn=output.append,
             )
 
     def test_list_then_accept(self):
@@ -306,8 +348,10 @@ class TestInteractiveSelect:
         inputs = iter(["l", "y"])
         output = []
         accepted = interactive_select(
-            groups, pathlib.Path("/root"),
-            input_fn=lambda _: next(inputs), print_fn=output.append,
+            groups,
+            pathlib.Path("/root"),
+            input_fn=lambda _: next(inputs),
+            print_fn=output.append,
         )
         assert pathlib.PurePosixPath("vacation") in accepted
         # Should have printed file listing
@@ -318,18 +362,26 @@ class TestInteractiveSelect:
         inputs = iter(["x", "z", "y"])
         output = []
         accepted = interactive_select(
-            groups, pathlib.Path("/root"),
-            input_fn=lambda _: next(inputs), print_fn=output.append,
+            groups,
+            pathlib.Path("/root"),
+            input_fn=lambda _: next(inputs),
+            print_fn=output.append,
         )
         assert pathlib.PurePosixPath("vacation") in accepted
 
     def test_mixed_accept_skip(self):
-        groups = [self._make_group("keep"), self._make_group("skip"), self._make_group("also_keep")]
+        groups = [
+            self._make_group("keep"),
+            self._make_group("skip"),
+            self._make_group("also_keep"),
+        ]
         inputs = iter(["y", "n", "y"])
         output = []
         accepted = interactive_select(
-            groups, pathlib.Path("/root"),
-            input_fn=lambda _: next(inputs), print_fn=output.append,
+            groups,
+            pathlib.Path("/root"),
+            input_fn=lambda _: next(inputs),
+            print_fn=output.append,
         )
         assert accepted == {
             pathlib.PurePosixPath("keep"),
@@ -348,7 +400,9 @@ class TestFilterScanResult:
 
         result = ScanResult(photos=[jpg])
         filtered = filter_scan_result(
-            result, tmp_path, {pathlib.PurePosixPath("vacation")},
+            result,
+            tmp_path,
+            {pathlib.PurePosixPath("vacation")},
         )
         assert filtered.photos == [jpg]
 
@@ -360,7 +414,9 @@ class TestFilterScanResult:
 
         result = ScanResult(photos=[jpg])
         filtered = filter_scan_result(
-            result, tmp_path, {pathlib.PurePosixPath("vacation")},
+            result,
+            tmp_path,
+            {pathlib.PurePosixPath("vacation")},
         )
         assert filtered.photos == []
 
@@ -370,7 +426,9 @@ class TestFilterScanResult:
 
         result = ScanResult(photos=[jpg])
         filtered = filter_scan_result(
-            result, tmp_path, {pathlib.PurePosixPath(".")},
+            result,
+            tmp_path,
+            {pathlib.PurePosixPath(".")},
         )
         assert filtered.photos == [jpg]
 
@@ -405,7 +463,7 @@ class TestFormatSize:
         assert format_size(int(1.2 * 1024 * 1024)) == "1.2 MB"
 
     def test_gigabytes(self):
-        assert format_size(1024 ** 3) == "1.0 GB"
+        assert format_size(1024**3) == "1.0 GB"
 
     def test_zero(self):
         assert format_size(0) == "0 B"

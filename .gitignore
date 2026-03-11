@@ -1,6 +1,9 @@
 *egg-info
 /.claude
 /.coverage
+/.mxmake/
 /build/
+/constraints-mxdev.txt
+/requirements-mxdev.txt
 /venv/
 __pycache__

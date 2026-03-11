@@ -7,7 +7,6 @@ import os
 import pathlib
 import tomllib
 
-
 logger = logging.getLogger(__name__)
 
 CONFIG_FILENAME = "config.toml"
@@ -111,8 +110,16 @@ def create_config_interactive(
         ("audio_target", "Audio target directory", str(_DEFAULTS["audio_target"])),
         ("dry_run", "Dry run (true/false)", str(_DEFAULTS["dry_run"]).lower()),
         ("move", "Move instead of copy (true/false)", str(_DEFAULTS["move"]).lower()),
-        ("identify", "AcoustID identification (true/false)", str(_DEFAULTS["identify"]).lower()),
-        ("select", "Interactive directory selection (true/false)", str(_DEFAULTS["select"]).lower()),
+        (
+            "identify",
+            "AcoustID identification (true/false)",
+            str(_DEFAULTS["identify"]).lower(),
+        ),
+        (
+            "select",
+            "Interactive directory selection (true/false)",
+            str(_DEFAULTS["select"]).lower(),
+        ),
     ]
 
     result: dict[str, object] = {}
@@ -129,7 +136,11 @@ def create_config_interactive(
 
     # acoustid_key — special handling: skip if empty
     acoustid_default = existing.get("acoustid_key", "")
-    acoustid_prompt = f"  AcoustID API key [{acoustid_default}]: " if acoustid_default else "  AcoustID API key: "
+    acoustid_prompt = (
+        f"  AcoustID API key [{acoustid_default}]: "
+        if acoustid_default
+        else "  AcoustID API key: "
+    )
     acoustid_val = input_fn(acoustid_prompt).strip()
     if not acoustid_val and acoustid_default:
         acoustid_val = acoustid_default

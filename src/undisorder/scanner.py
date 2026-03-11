@@ -9,28 +9,63 @@ import enum
 import logging
 import pathlib
 
-
 logger = logging.getLogger(__name__)
 
 
 PHOTO_EXTENSIONS: set[str] = {
-    ".jpg", ".jpeg", ".png", ".tiff", ".tif",
-    ".heic", ".heif", ".webp", ".bmp",
+    ".jpg",
+    ".jpeg",
+    ".png",
+    ".tiff",
+    ".tif",
+    ".heic",
+    ".heif",
+    ".webp",
+    ".bmp",
     # RAW formats
-    ".cr2", ".cr3", ".nef", ".arw", ".orf",
-    ".raf", ".rw2", ".dng", ".pef", ".srw",
+    ".cr2",
+    ".cr3",
+    ".nef",
+    ".arw",
+    ".orf",
+    ".raf",
+    ".rw2",
+    ".dng",
+    ".pef",
+    ".srw",
 }
 
 VIDEO_EXTENSIONS: set[str] = {
-    ".mp4", ".mov", ".avi", ".mkv", ".mts",
-    ".m2ts", ".wmv", ".flv", ".webm", ".3gp",
-    ".m4v", ".mpg", ".mpeg", ".vob",
+    ".mp4",
+    ".mov",
+    ".avi",
+    ".mkv",
+    ".mts",
+    ".m2ts",
+    ".wmv",
+    ".flv",
+    ".webm",
+    ".3gp",
+    ".m4v",
+    ".mpg",
+    ".mpeg",
+    ".vob",
 }
 
 AUDIO_EXTENSIONS: set[str] = {
-    ".mp3", ".flac", ".ogg", ".opus", ".m4a",
-    ".aac", ".wma", ".wav", ".aiff", ".ape",
-    ".mpc", ".wv", ".tta",
+    ".mp3",
+    ".flac",
+    ".ogg",
+    ".opus",
+    ".m4a",
+    ".aac",
+    ".wma",
+    ".wav",
+    ".aiff",
+    ".ape",
+    ".mpc",
+    ".wv",
+    ".tta",
 }
 
 
@@ -54,7 +89,9 @@ class ScanResult:
 
     @property
     def total(self) -> int:
-        return len(self.photos) + len(self.videos) + len(self.audios) + len(self.unknown)
+        return (
+            len(self.photos) + len(self.videos) + len(self.audios) + len(self.unknown)
+        )
 
     @property
     def media_files(self) -> list[pathlib.Path]:

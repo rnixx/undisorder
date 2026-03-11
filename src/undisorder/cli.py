@@ -16,7 +16,6 @@ import argparse
 import logging
 import pathlib
 
-
 logger = logging.getLogger(__name__)
 
 
@@ -27,27 +26,45 @@ def build_parser() -> argparse.ArgumentParser:
         description="Photo/Video/Audio organization tool — deduplicates, sorts, and imports into a clean directory structure.",
     )
     parser.add_argument(
-        "--configure", action="store_true", default=False,
+        "--configure",
+        action="store_true",
+        default=False,
         help="Create or update configuration file interactively",
     )
 
     verbosity = parser.add_mutually_exclusive_group()
-    verbosity.add_argument("--verbose", "-v", action="store_true", default=False,
-                           help="Enable verbose (debug) output")
-    verbosity.add_argument("--quiet", "-q", action="store_true", default=False,
-                           help="Suppress informational output")
+    verbosity.add_argument(
+        "--verbose",
+        "-v",
+        action="store_true",
+        default=False,
+        help="Enable verbose (debug) output",
+    )
+    verbosity.add_argument(
+        "--quiet",
+        "-q",
+        action="store_true",
+        default=False,
+        help="Suppress informational output",
+    )
 
     sub = parser.add_subparsers(dest="command", required=False)
 
     # --- dupes ---
     p_dupes = sub.add_parser("dupes", help="Find duplicates in source directory")
     p_dupes.add_argument("source", type=pathlib.Path, help="Source directory to scan")
-    p_dupes.add_argument("--delete", action="store_true", default=False,
-                         help="Delete newer duplicates, keeping the oldest file in each group")
+    p_dupes.add_argument(
+        "--delete",
+        action="store_true",
+        default=False,
+        help="Delete newer duplicates, keeping the oldest file in each group",
+    )
 
     # --- import ---
     p_import = sub.add_parser("import", help="Import files into collection")
-    p_import.add_argument("source", type=pathlib.Path, help="Source directory to import from")
+    p_import.add_argument(
+        "source", type=pathlib.Path, help="Source directory to import from"
+    )
     p_import.add_argument(
         "--images-target",
         type=pathlib.Path,
@@ -66,8 +83,15 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Target directory for audio (default: ~/Musik)",
     )
-    p_import.add_argument("--dry-run", action="store_true", default=None, help="Show plan without executing")
-    p_import.add_argument("--move", action="store_true", default=None, help="Move instead of copy")
+    p_import.add_argument(
+        "--dry-run",
+        action="store_true",
+        default=None,
+        help="Show plan without executing",
+    )
+    p_import.add_argument(
+        "--move", action="store_true", default=None, help="Move instead of copy"
+    )
     identify_group = p_import.add_mutually_exclusive_group()
     identify_group.add_argument(
         "--identify",
@@ -90,15 +114,23 @@ def build_parser() -> argparse.ArgumentParser:
         help="AcoustID API key (or set ACOUSTID_API_KEY env var)",
     )
     p_import.add_argument(
-        "--exclude", action="append", default=None, metavar="PATTERN",
+        "--exclude",
+        action="append",
+        default=None,
+        metavar="PATTERN",
         help="Glob pattern to exclude files (e.g., '*.wav'). Repeatable.",
     )
     p_import.add_argument(
-        "--exclude-dir", action="append", default=None, metavar="PATTERN",
+        "--exclude-dir",
+        action="append",
+        default=None,
+        metavar="PATTERN",
         help="Glob pattern to exclude directories (e.g., 'DAW*'). Repeatable.",
     )
     p_import.add_argument(
-        "--select", action="store_true", default=None,
+        "--select",
+        action="store_true",
+        default=None,
         help="Interactively select which directories to import",
     )
     # --- hashdb ---
@@ -106,7 +138,6 @@ def build_parser() -> argparse.ArgumentParser:
     p_hashdb.add_argument("target", type=pathlib.Path, help="Target directory to index")
 
     return parser
-
 
 
 def cmd_dupes(args: argparse.Namespace) -> None:
@@ -137,7 +168,9 @@ def cmd_dupes(args: argparse.Namespace) -> None:
     deleted_count = 0
     freed_bytes = 0
     for i, group in enumerate(groups, 1):
-        logger.info(f"  Group {i} ({len(group.paths)} files, {format_size(group.file_size)}):")
+        logger.info(
+            f"  Group {i} ({len(group.paths)} files, {format_size(group.file_size)}):"
+        )
         for p in group.paths:
             logger.info(f"    {p}")
         logger.info("")
@@ -156,7 +189,9 @@ def cmd_dupes(args: argparse.Namespace) -> None:
 
     logger.info(f"{total_dupes} duplicate file(s), {format_size(wasted_bytes)} wasted")
     if args.delete:
-        logger.info(f"Deleted {deleted_count} file(s), freed {format_size(freed_bytes)}")
+        logger.info(
+            f"Deleted {deleted_count} file(s), freed {format_size(freed_bytes)}"
+        )
 
 
 def cmd_hashdb(args: argparse.Namespace) -> None:

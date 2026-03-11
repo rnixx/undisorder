@@ -29,9 +29,7 @@ class TestExtract:
     """Test single-file metadata extraction."""
 
     def test_extracts_date_taken(self):
-        raw = _make_exiftool_result(
-            **{"EXIF:DateTimeOriginal": "2024:03:15 14:30:00"}
-        )
+        raw = _make_exiftool_result(**{"EXIF:DateTimeOriginal": "2024:03:15 14:30:00"})
         with patch("undisorder.metadata._run_exiftool", return_value=[raw]):
             m = extract(pathlib.Path("/fake/photo.jpg"))
         assert m.date_taken == datetime.datetime(2024, 3, 15, 14, 30, 0)
@@ -43,9 +41,7 @@ class TestExtract:
         assert m.date_taken == datetime.datetime(2023, 12, 25, 10, 0, 0)
 
     def test_falls_back_to_quicktime_createdate(self):
-        raw = _make_exiftool_result(
-            **{"QuickTime:CreateDate": "2023:06:01 12:00:00"}
-        )
+        raw = _make_exiftool_result(**{"QuickTime:CreateDate": "2023:06:01 12:00:00"})
         with patch("undisorder.metadata._run_exiftool", return_value=[raw]):
             m = extract(pathlib.Path("/fake/video.mov"))
         assert m.date_taken == datetime.datetime(2023, 6, 1, 12, 0, 0)
@@ -57,12 +53,11 @@ class TestExtract:
         assert m.date_taken is None
 
     def test_invalid_date_returns_none(self):
-        raw = _make_exiftool_result(
-            **{"EXIF:DateTimeOriginal": "0000:00:00 00:00:00"}
-        )
+        raw = _make_exiftool_result(**{"EXIF:DateTimeOriginal": "0000:00:00 00:00:00"})
         with patch("undisorder.metadata._run_exiftool", return_value=[raw]):
             m = extract(pathlib.Path("/fake/photo.jpg"))
         assert m.date_taken is None
+
 
 class TestMtimeFallback:
     """Test filesystem mtime as date fallback when no EXIF date is found."""
@@ -72,6 +67,7 @@ class TestMtimeFallback:
         photo = tmp_path / "photo.jpg"
         photo.write_bytes(b"fake image")
         import os
+
         mtime = 1710500000.0  # 2024-03-15 ~13:33 UTC
         os.utime(photo, (mtime, mtime))
 
@@ -87,6 +83,7 @@ class TestMtimeFallback:
         photo = tmp_path / "photo.jpg"
         photo.write_bytes(b"fake image")
         import os
+
         mtime = 1710500000.0
         os.utime(photo, (mtime, mtime))
 
@@ -104,6 +101,7 @@ class TestMtimeFallback:
         photo = tmp_path / "photo.jpg"
         photo.write_bytes(b"fake image")
         import os
+
         mtime = 1710500000.0
         os.utime(photo, (mtime, mtime))
 

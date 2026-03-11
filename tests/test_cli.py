@@ -38,21 +38,32 @@ class TestBuildParser:
 
     def test_import_subcommand_all_flags(self):
         parser = build_parser()
-        args = parser.parse_args([
-            "import", "/tmp/source",
-            "--images-target", "/custom/photos",
-            "--video-target", "/custom/videos",
-            "--audio-target", "/custom/music",
-            "--dry-run",
-            "--move",
-            "--identify",
-            "--acoustid-key", "test-key-123",
-            "--exclude", "*.wav",
-            "--exclude", "*.aiff",
-            "--exclude-dir", "DAW*",
-            "--exclude-dir", ".ableton",
-            "--select",
-        ])
+        args = parser.parse_args(
+            [
+                "import",
+                "/tmp/source",
+                "--images-target",
+                "/custom/photos",
+                "--video-target",
+                "/custom/videos",
+                "--audio-target",
+                "/custom/music",
+                "--dry-run",
+                "--move",
+                "--identify",
+                "--acoustid-key",
+                "test-key-123",
+                "--exclude",
+                "*.wav",
+                "--exclude",
+                "*.aiff",
+                "--exclude-dir",
+                "DAW*",
+                "--exclude-dir",
+                ".ableton",
+                "--select",
+            ]
+        )
         assert args.images_target == pathlib.Path("/custom/photos")
         assert args.video_target == pathlib.Path("/custom/videos")
         assert args.audio_target == pathlib.Path("/custom/music")
@@ -113,8 +124,10 @@ class TestMain:
     def test_configure_flag(self, tmp_path, monkeypatch):
         from undisorder.cli import main
         from unittest.mock import patch
+
         monkeypatch.setattr(
-            "sys.argv", ["undisorder", "--configure"],
+            "sys.argv",
+            ["undisorder", "--configure"],
         )
         with patch("undisorder.cli.create_config_interactive") as mock_configure:
             main()
@@ -122,6 +135,7 @@ class TestMain:
 
     def test_no_command_prints_help(self, capsys, monkeypatch):
         from undisorder.cli import main
+
         monkeypatch.setattr("sys.argv", ["undisorder"])
         main()
         captured = capsys.readouterr()
@@ -129,6 +143,7 @@ class TestMain:
 
     def test_import_dispatches(self, tmp_path, monkeypatch, caplog):
         from undisorder.cli import main
+
         source = tmp_path / "source"
         source.mkdir()
         monkeypatch.setattr(
@@ -260,18 +275,21 @@ class TestLoggingSetup:
 
     def test_default_level_is_info(self):
         from undisorder.logging import configure_logging
+
         configure_logging()
         logger = logging.getLogger("undisorder")
         assert logger.level == logging.INFO
 
     def test_verbose_sets_debug(self):
         from undisorder.logging import configure_logging
+
         configure_logging(verbose=True)
         logger = logging.getLogger("undisorder")
         assert logger.level == logging.DEBUG
 
     def test_quiet_sets_warning(self):
         from undisorder.logging import configure_logging
+
         configure_logging(quiet=True)
         logger = logging.getLogger("undisorder")
         assert logger.level == logging.WARNING

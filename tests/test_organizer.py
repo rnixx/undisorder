@@ -177,7 +177,14 @@ class TestDetermineAudioTargetPath:
             track_number=1,
         )
         result = determine_audio_target_path(meta, tmp_path / "Musik")
-        assert result == tmp_path / "Musik" / "The Beatles" / "Abbey Road" / "01_Come Together.mp3"
+        assert (
+            result
+            == tmp_path
+            / "Musik"
+            / "The Beatles"
+            / "Abbey Road"
+            / "01_Come Together.mp3"
+        )
 
     def test_two_digit_track_number(self, tmp_path: pathlib.Path):
         meta = AudioMetadata(
@@ -239,7 +246,14 @@ class TestDetermineAudioTargetPath:
             source_path=pathlib.Path("/source/unknown_file.mp3"),
         )
         result = determine_audio_target_path(meta, tmp_path / "Musik")
-        assert result == tmp_path / "Musik" / "Unknown Artist" / "Unknown Album" / "unknown_file.mp3"
+        assert (
+            result
+            == tmp_path
+            / "Musik"
+            / "Unknown Artist"
+            / "Unknown Album"
+            / "unknown_file.mp3"
+        )
 
     def test_sanitizes_filename(self, tmp_path: pathlib.Path):
         meta = AudioMetadata(

@@ -9,7 +9,6 @@ import hashlib
 import logging
 import pathlib
 
-
 logger = logging.getLogger(__name__)
 
 
@@ -70,5 +69,7 @@ def find_duplicates(paths: list[pathlib.Path]) -> list[DuplicateGroup]:
             if len(files) >= 2:
                 duplicates.append(DuplicateGroup(hash=h, file_size=size, paths=files))
 
-    logger.debug(f"phase 2 (hashing): {hashed} files hashed, {len(duplicates)} duplicate group(s)")
+    logger.debug(
+        f"phase 2 (hashing): {hashed} files hashed, {len(duplicates)} duplicate group(s)"
+    )
     return duplicates

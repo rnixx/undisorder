@@ -230,32 +230,16 @@ Path: `{target}/{Artist}/{Album}/{NN_Title}{ext}`. Falls back to
 ```bash
 git clone https://github.com/rnixx/undisorder.git
 cd undisorder
-python -m venv venv
-source venv/bin/activate
-pip install -e '.[dev]'
+make install
 ```
 
 ### QA
 
 ```bash
-# Tests
-pytest -v
-
-# Linting
-ruff check src/ tests/
-
-# Import sorting
-isort --check src/ tests/
-
-# Type checking
-ty check src/ tests/
-```
-
-Auto-fix:
-
-```bash
-ruff check --fix src/ tests/
-isort src/ tests/
+make test        # Run tests
+make check       # Linting (ruff + isort)
+make typecheck   # Type checking (mypy)
+make format      # Auto-fix lint issues
 ```
 
 CI runs all checks via GitHub Actions on push and pull request

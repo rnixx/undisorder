@@ -10,7 +10,6 @@ import logging
 import pathlib
 import sqlite3
 
-
 logger = logging.getLogger(__name__)
 
 _SCHEMA_VERSION = 1
@@ -226,10 +225,18 @@ class HashDB:
                     self._conn.execute(
                         "INSERT INTO files (original_hash, current_hash, target_dir, file_path, import_date) "
                         "VALUES (?, ?, ?, ?, ?)",
-                        (h, h, self.target_dir, rel_str, datetime.datetime.now().isoformat()),
+                        (
+                            h,
+                            h,
+                            self.target_dir,
+                            rel_str,
+                            datetime.datetime.now().isoformat(),
+                        ),
                     )
                 except sqlite3.IntegrityError:
-                    logger.warning("Skipping duplicate hash during rebuild: %s (%s)", h[:12], rel)
+                    logger.warning(
+                        "Skipping duplicate hash during rebuild: %s (%s)", h[:12], rel
+                    )
                     continue
             count += 1
 

@@ -1,6 +1,7 @@
 """Tests for undisorder.hashdb — SQLite hash index CRUD."""
 
-from undisorder.hashdb import HashDB, _SCHEMA_VERSION
+from undisorder.hashdb import _SCHEMA_VERSION
+from undisorder.hashdb import HashDB
 
 import pathlib
 import pytest
@@ -36,7 +37,9 @@ class TestHashDBInit:
         HashDB(tmp_target, db_path=db_path)
         HashDB(tmp_target, db_path=db_path)
 
-    def test_context_manager_closes_connection(self, tmp_path: pathlib.Path, tmp_target: pathlib.Path):
+    def test_context_manager_closes_connection(
+        self, tmp_path: pathlib.Path, tmp_target: pathlib.Path
+    ):
         """Using HashDB as context manager should close the connection on exit."""
         db_path = tmp_path / "test.db"
         with HashDB(tmp_target, db_path=db_path) as db:
@@ -45,7 +48,9 @@ class TestHashDBInit:
         with pytest.raises(Exception):
             db.hash_exists("h1")
 
-    def test_context_manager_preserves_data(self, tmp_path: pathlib.Path, tmp_target: pathlib.Path):
+    def test_context_manager_preserves_data(
+        self, tmp_path: pathlib.Path, tmp_target: pathlib.Path
+    ):
         """Data inserted before context exit should be readable in a new connection."""
         db_path = tmp_path / "test.db"
         with HashDB(tmp_target, db_path=db_path) as db:
@@ -54,7 +59,9 @@ class TestHashDBInit:
         db2 = HashDB(tmp_target, db_path=db_path)
         assert db2.hash_exists("h1")
 
-    def test_fresh_db_gets_schema_version(self, tmp_path: pathlib.Path, tmp_target: pathlib.Path):
+    def test_fresh_db_gets_schema_version(
+        self, tmp_path: pathlib.Path, tmp_target: pathlib.Path
+    ):
         """A new database should be stamped with the current schema version."""
         db_path = tmp_path / "test.db"
         HashDB(tmp_target, db_path=db_path)
@@ -63,7 +70,9 @@ class TestHashDBInit:
         conn.close()
         assert version == _SCHEMA_VERSION
 
-    def test_incompatible_schema_version_exits(self, tmp_path: pathlib.Path, tmp_target: pathlib.Path):
+    def test_incompatible_schema_version_exits(
+        self, tmp_path: pathlib.Path, tmp_target: pathlib.Path
+    ):
         """Opening a DB with a different schema version should exit."""
         db_path = tmp_path / "test.db"
         conn = sqlite3.connect(db_path)
@@ -72,7 +81,6 @@ class TestHashDBInit:
         conn.close()
         with pytest.raises(SystemExit):
             HashDB(tmp_target, db_path=db_path)
-
 
 
 class TestHashDBInsert:
@@ -133,7 +141,6 @@ class TestHashDBQuery:
         assert db.count() == 2
 
 
-
 class TestHashDBDelete:
     """Test deleting records."""
 
@@ -167,7 +174,9 @@ class TestHashDBDelete:
 class TestHashDBRebuild:
     """Test rebuilding the hash DB from the filesystem."""
 
-    def test_rebuild_adds_new_files(self, tmp_path: pathlib.Path, tmp_target: pathlib.Path):
+    def test_rebuild_adds_new_files(
+        self, tmp_path: pathlib.Path, tmp_target: pathlib.Path
+    ):
         """New files on disk get inserted with original_hash = current_hash."""
         sub = tmp_target / "2024" / "2024-03"
         sub.mkdir(parents=True)
@@ -177,7 +186,9 @@ class TestHashDBRebuild:
         assert count == 1
         assert db.count() == 1
 
-    def test_rebuild_updates_current_hash_for_known_files(self, tmp_path: pathlib.Path, tmp_target: pathlib.Path):
+    def test_rebuild_updates_current_hash_for_known_files(
+        self, tmp_path: pathlib.Path, tmp_target: pathlib.Path
+    ):
         """Known file_path gets current_hash updated."""
         from undisorder.hasher import hash_file
 
@@ -199,14 +210,18 @@ class TestHashDBRebuild:
         assert row is not None
         assert row["current_hash"] == new_h
 
-    def test_rebuild_deletes_missing_files(self, tmp_path: pathlib.Path, tmp_target: pathlib.Path):
+    def test_rebuild_deletes_missing_files(
+        self, tmp_path: pathlib.Path, tmp_target: pathlib.Path
+    ):
         """DB records with no corresponding file on disk get deleted."""
         db = HashDB(tmp_target, db_path=tmp_path / "test.db")
         db.insert(original_hash="old", file_path="gone.jpg")
         db.rebuild(tmp_target)
         assert db.hash_exists("old") is False
 
-    def test_rebuild_inserts_unknown_files(self, tmp_path: pathlib.Path, tmp_target: pathlib.Path):
+    def test_rebuild_inserts_unknown_files(
+        self, tmp_path: pathlib.Path, tmp_target: pathlib.Path
+    ):
         """Files on disk not in DB get inserted with original_hash = current_hash."""
         from undisorder.hasher import hash_file
 

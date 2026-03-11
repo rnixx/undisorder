@@ -131,9 +131,7 @@ class TestScan:
         assert sample_mp4 in result.videos
         assert result.photos == []
 
-    def test_ignores_unknown(
-        self, sample_txt: pathlib.Path, tmp_source: pathlib.Path
-    ):
+    def test_ignores_unknown(self, sample_txt: pathlib.Path, tmp_source: pathlib.Path):
         result = scan(tmp_source)
         assert result.photos == []
         assert result.videos == []
