@@ -126,31 +126,6 @@ class HashDB:
         )
         return cursor.fetchone() is not None
 
-    def get_by_hash(self, file_hash: str) -> dict[str, object] | None:
-        """Get the record for a given original_hash, or None."""
-        cursor = self._conn.execute(
-            "SELECT * FROM files WHERE original_hash = ?",
-            (file_hash,),
-        )
-        row = cursor.fetchone()
-        return dict(row) if row else None
-
-    def count(self) -> int:
-        """Return the total number of records."""
-        cursor = self._conn.execute(
-            "SELECT COUNT(*) FROM files WHERE target_dir = ?",
-            (self.target_dir,),
-        )
-        return cursor.fetchone()[0]
-
-    def delete_by_path(self, file_path: str) -> None:
-        """Delete a record by file path, scoped to this target_dir."""
-        self._conn.execute(
-            "DELETE FROM files WHERE file_path = ? AND target_dir = ?",
-            (file_path, self.target_dir),
-        )
-        self._conn.commit()
-
     def get_acoustid_cache(self, file_hash: str) -> dict | None:
         """Get cached AcoustID lookup result for a file hash."""
         cursor = self._conn.execute(

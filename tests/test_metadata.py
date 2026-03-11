@@ -1,6 +1,5 @@
 """Tests for undisorder.metadata — EXIF/metadata extraction via exiftool."""
 
-from undisorder.metadata import extract
 from undisorder.metadata import extract_batch
 from undisorder.metadata import Metadata
 from unittest.mock import patch
@@ -25,38 +24,47 @@ class TestMetadataDataclass:
         assert m.date_from_mtime is False
 
 
-class TestExtract:
-    """Test single-file metadata extraction."""
+class TestExtractBatchDateParsing:
+    """Test date extraction logic via extract_batch."""
 
     def test_extracts_date_taken(self):
-        raw = _make_exiftool_result(**{"EXIF:DateTimeOriginal": "2024:03:15 14:30:00"})
-        with patch("undisorder.metadata._run_exiftool", return_value=[raw]):
-            m = extract(pathlib.Path("/fake/photo.jpg"))
-        assert m.date_taken == datetime.datetime(2024, 3, 15, 14, 30, 0)
+        raw = [
+            _make_exiftool_result(**{"EXIF:DateTimeOriginal": "2024:03:15 14:30:00"})
+        ]
+        path = pathlib.Path("/fake/photo.jpg")
+        with patch("undisorder.metadata._run_exiftool", return_value=raw):
+            results = extract_batch([path])
+        assert results[path].date_taken == datetime.datetime(2024, 3, 15, 14, 30, 0)
 
     def test_falls_back_to_createdate(self):
-        raw = _make_exiftool_result(**{"EXIF:CreateDate": "2023:12:25 10:00:00"})
-        with patch("undisorder.metadata._run_exiftool", return_value=[raw]):
-            m = extract(pathlib.Path("/fake/video.mp4"))
-        assert m.date_taken == datetime.datetime(2023, 12, 25, 10, 0, 0)
+        raw = [_make_exiftool_result(**{"EXIF:CreateDate": "2023:12:25 10:00:00"})]
+        path = pathlib.Path("/fake/photo.jpg")
+        with patch("undisorder.metadata._run_exiftool", return_value=raw):
+            results = extract_batch([path])
+        assert results[path].date_taken == datetime.datetime(2023, 12, 25, 10, 0, 0)
 
     def test_falls_back_to_quicktime_createdate(self):
-        raw = _make_exiftool_result(**{"QuickTime:CreateDate": "2023:06:01 12:00:00"})
-        with patch("undisorder.metadata._run_exiftool", return_value=[raw]):
-            m = extract(pathlib.Path("/fake/video.mov"))
-        assert m.date_taken == datetime.datetime(2023, 6, 1, 12, 0, 0)
+        raw = [_make_exiftool_result(**{"QuickTime:CreateDate": "2023:06:01 12:00:00"})]
+        path = pathlib.Path("/fake/photo.jpg")
+        with patch("undisorder.metadata._run_exiftool", return_value=raw):
+            results = extract_batch([path])
+        assert results[path].date_taken == datetime.datetime(2023, 6, 1, 12, 0, 0)
 
     def test_no_metadata_returns_defaults(self):
-        raw = _make_exiftool_result()
-        with patch("undisorder.metadata._run_exiftool", return_value=[raw]):
-            m = extract(pathlib.Path("/fake/photo.jpg"))
-        assert m.date_taken is None
+        raw = [_make_exiftool_result()]
+        path = pathlib.Path("/fake/photo.jpg")
+        with patch("undisorder.metadata._run_exiftool", return_value=raw):
+            results = extract_batch([path])
+        assert results[path].date_taken is None
 
     def test_invalid_date_returns_none(self):
-        raw = _make_exiftool_result(**{"EXIF:DateTimeOriginal": "0000:00:00 00:00:00"})
-        with patch("undisorder.metadata._run_exiftool", return_value=[raw]):
-            m = extract(pathlib.Path("/fake/photo.jpg"))
-        assert m.date_taken is None
+        raw = [
+            _make_exiftool_result(**{"EXIF:DateTimeOriginal": "0000:00:00 00:00:00"})
+        ]
+        path = pathlib.Path("/fake/photo.jpg")
+        with patch("undisorder.metadata._run_exiftool", return_value=raw):
+            results = extract_batch([path])
+        assert results[path].date_taken is None
 
 
 class TestMtimeFallback:
@@ -71,9 +79,10 @@ class TestMtimeFallback:
         mtime = 1710500000.0  # 2024-03-15 ~13:33 UTC
         os.utime(photo, (mtime, mtime))
 
-        raw = _make_exiftool_result(SourceFile=str(photo))
-        with patch("undisorder.metadata._run_exiftool", return_value=[raw]):
-            m = extract(photo)
+        raw = [_make_exiftool_result(SourceFile=str(photo))]
+        with patch("undisorder.metadata._run_exiftool", return_value=raw):
+            results = extract_batch([photo])
+        m = results[photo]
         assert m.date_taken is not None
         assert m.date_taken.year == 2024
         assert m.date_from_mtime is True
@@ -87,12 +96,15 @@ class TestMtimeFallback:
         mtime = 1710500000.0
         os.utime(photo, (mtime, mtime))
 
-        raw = _make_exiftool_result(
-            SourceFile=str(photo),
-            **{"EXIF:DateTimeOriginal": "2023:06:01 12:00:00"},
-        )
-        with patch("undisorder.metadata._run_exiftool", return_value=[raw]):
-            m = extract(photo)
+        raw = [
+            _make_exiftool_result(
+                SourceFile=str(photo),
+                **{"EXIF:DateTimeOriginal": "2023:06:01 12:00:00"},
+            )
+        ]
+        with patch("undisorder.metadata._run_exiftool", return_value=raw):
+            results = extract_batch([photo])
+        m = results[photo]
         assert m.date_taken == datetime.datetime(2023, 6, 1, 12, 0, 0)
         assert m.date_from_mtime is False
 

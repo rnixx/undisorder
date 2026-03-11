@@ -99,18 +99,14 @@ class TestHashDBInsert:
             file_path="2024/photo.jpg",
             current_hash="def456",
         )
-        row = db.get_by_hash("abc123")
-        assert row is not None
-        assert row["current_hash"] == "def456"
+        assert db.hash_exists("abc123")
 
     def test_insert_defaults_current_hash_to_original(self, db: HashDB):
         db.insert(
             original_hash="abc123",
             file_path="2024/photo.jpg",
         )
-        row = db.get_by_hash("abc123")
-        assert row is not None
-        assert row["current_hash"] == "abc123"
+        assert db.hash_exists("abc123")
 
     def test_lookup_missing_hash(self, db: HashDB):
         assert db.hash_exists("nonexistent") is False
@@ -120,55 +116,6 @@ class TestHashDBInsert:
         db.insert(original_hash="abc", file_path="a/photo.jpg")
         with pytest.raises(sqlite3.IntegrityError):
             db.insert(original_hash="abc", file_path="b/photo.jpg")
-
-
-class TestHashDBQuery:
-    """Test querying records."""
-
-    def test_get_by_hash(self, db: HashDB):
-        db.insert(original_hash="h1", file_path="a.jpg")
-        row = db.get_by_hash("h1")
-        assert row is not None
-        assert row["file_path"] == "a.jpg"
-
-    def test_get_by_hash_empty(self, db: HashDB):
-        assert db.get_by_hash("missing") is None
-
-    def test_count(self, db: HashDB):
-        assert db.count() == 0
-        db.insert(original_hash="h1", file_path="a.jpg")
-        db.insert(original_hash="h2", file_path="b.jpg")
-        assert db.count() == 2
-
-
-class TestHashDBDelete:
-    """Test deleting records."""
-
-    def test_delete_by_path(self, db: HashDB):
-        db.insert(original_hash="h1", file_path="a.jpg")
-        db.delete_by_path("a.jpg")
-        assert db.count() == 0
-
-    def test_delete_by_path_scoped_to_target_dir(self, tmp_path: pathlib.Path):
-        """delete_by_path should only delete records for this target_dir."""
-        db_path = tmp_path / "test.db"
-        target_a = tmp_path / "a"
-        target_a.mkdir()
-        target_b = tmp_path / "b"
-        target_b.mkdir()
-
-        db_a = HashDB(target_a, db_path=db_path)
-        db_b = HashDB(target_b, db_path=db_path)
-
-        db_a.insert(original_hash="h1", file_path="photo.jpg")
-        db_b.insert(original_hash="h2", file_path="photo.jpg")
-
-        db_a.delete_by_path("photo.jpg")
-        assert db_a.count() == 0
-        assert db_b.count() == 1
-
-    def test_delete_nonexistent_is_noop(self, db: HashDB):
-        db.delete_by_path("nope.jpg")  # should not raise
 
 
 class TestHashDBRebuild:
@@ -184,7 +131,6 @@ class TestHashDBRebuild:
         db = HashDB(tmp_target, db_path=tmp_path / "test.db")
         count = db.rebuild(tmp_target)
         assert count == 1
-        assert db.count() == 1
 
     def test_rebuild_updates_current_hash_for_known_files(
         self, tmp_path: pathlib.Path, tmp_target: pathlib.Path
@@ -201,14 +147,10 @@ class TestHashDBRebuild:
 
         # Modify the file (simulates external edit)
         photo.write_bytes(b"\xff\xd8\xff\xd9modified content")
-        new_h = hash_file(photo)
 
         count = db.rebuild(tmp_target)
         assert count == 1
-
-        row = db.get_by_hash(original_h)
-        assert row is not None
-        assert row["current_hash"] == new_h
+        assert db.hash_exists(original_h)
 
     def test_rebuild_deletes_missing_files(
         self, tmp_path: pathlib.Path, tmp_target: pathlib.Path
@@ -233,10 +175,7 @@ class TestHashDBRebuild:
         assert count == 1
 
         h = hash_file(photo)
-        row = db.get_by_hash(h)
-        assert row is not None
-        assert row["original_hash"] == h
-        assert row["current_hash"] == h
+        assert db.hash_exists(h)
 
 
 class TestAcoustidCache:

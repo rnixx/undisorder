@@ -82,14 +82,6 @@ def _parse_one(raw: dict[str, object], path: pathlib.Path) -> Metadata:
     )
 
 
-def extract(path: pathlib.Path) -> Metadata:
-    """Extract metadata from a single file."""
-    results = _run_exiftool([path])
-    if not results:
-        return Metadata(source_path=path)
-    return _parse_one(results[0], path)
-
-
 def extract_batch(
     paths: list[pathlib.Path], batch_size: int = 100
 ) -> dict[pathlib.Path, Metadata]:
