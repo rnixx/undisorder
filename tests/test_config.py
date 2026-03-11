@@ -142,7 +142,7 @@ class TestCreateConfigInteractive:
         # Accept all defaults by pressing Enter
         inputs = iter([""] * 20)
         create_config_interactive(
-            config_dir=tmp_path, input_fn=lambda _: next(inputs), print_fn=lambda *a: None,
+            cfg_dir=tmp_path, input_fn=lambda _: next(inputs), print_fn=lambda *a: None,
         )
         assert (tmp_path / CONFIG_FILENAME).exists()
 
@@ -161,7 +161,7 @@ class TestCreateConfigInteractive:
             return ""
 
         create_config_interactive(
-            config_dir=tmp_path, input_fn=fake_input, print_fn=lambda *a: None,
+            cfg_dir=tmp_path, input_fn=fake_input, print_fn=lambda *a: None,
         )
         cfg = load_config(tmp_path)
         assert cfg["images_target"] == "/my/photos"
@@ -172,7 +172,7 @@ class TestCreateConfigInteractive:
     def test_skip_empty_input_uses_default(self, tmp_path):
         inputs = iter([""] * 20)
         create_config_interactive(
-            config_dir=tmp_path, input_fn=lambda _: next(inputs), print_fn=lambda *a: None,
+            cfg_dir=tmp_path, input_fn=lambda _: next(inputs), print_fn=lambda *a: None,
         )
         cfg = load_config(tmp_path)
         assert cfg["images_target"] == "~/Bilder/Fotos"
@@ -184,7 +184,7 @@ class TestCreateConfigInteractive:
             return ""
 
         create_config_interactive(
-            config_dir=tmp_path, input_fn=fake_input, print_fn=lambda *a: None,
+            cfg_dir=tmp_path, input_fn=fake_input, print_fn=lambda *a: None,
         )
         cfg = load_config(tmp_path)
         assert cfg["acoustid_key"] == "test-key-123"
@@ -192,7 +192,7 @@ class TestCreateConfigInteractive:
     def test_acoustid_key_skip(self, tmp_path):
         inputs = iter([""] * 20)
         create_config_interactive(
-            config_dir=tmp_path, input_fn=lambda _: next(inputs), print_fn=lambda *a: None,
+            cfg_dir=tmp_path, input_fn=lambda _: next(inputs), print_fn=lambda *a: None,
         )
         cfg = load_config(tmp_path)
         assert "acoustid_key" not in cfg
@@ -208,7 +208,7 @@ class TestCreateConfigInteractive:
             return ""
 
         create_config_interactive(
-            config_dir=tmp_path, input_fn=fake_input, print_fn=lambda *a: None,
+            cfg_dir=tmp_path, input_fn=fake_input, print_fn=lambda *a: None,
         )
         # Defaults from existing config should appear in prompts
         matching = [p for p in prompts_seen if "/existing/photos" in p]

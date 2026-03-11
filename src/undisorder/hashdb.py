@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from undisorder.config import _config_dir
+from undisorder.config import config_dir
 from undisorder.hasher import hash_file
 
 import datetime
@@ -43,7 +43,7 @@ CREATE TABLE IF NOT EXISTS acoustid_cache (
 
 def _default_db_path() -> pathlib.Path:
     """Return the default central database path."""
-    return _config_dir() / "undisorder.db"
+    return config_dir() / "undisorder.db"
 
 
 class HashDB:

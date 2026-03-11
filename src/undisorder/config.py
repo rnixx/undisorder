@@ -30,7 +30,7 @@ _BOOL_KEYS = {"dry_run", "move", "identify", "select"}
 _LIST_KEYS = {"exclude", "exclude_dir"}
 
 
-def _config_dir() -> pathlib.Path:
+def config_dir() -> pathlib.Path:
     """Return the undisorder config directory."""
     base = pathlib.Path(os.environ.get("XDG_CONFIG_HOME", "~/.config")).expanduser()
     d = base / "undisorder"
@@ -38,14 +38,14 @@ def _config_dir() -> pathlib.Path:
     return d
 
 
-def load_config(config_dir: pathlib.Path | None = None) -> dict:
+def load_config(cfg_dir: pathlib.Path | None = None) -> dict:
     """Load config.toml and return its contents as a dict.
 
     Returns {} if no file exists or on parse error.
     """
-    if config_dir is None:
-        config_dir = _config_dir()
-    path = config_dir / CONFIG_FILENAME
+    if cfg_dir is None:
+        cfg_dir = config_dir()
+    path = cfg_dir / CONFIG_FILENAME
     if not path.exists():
         return {}
     try:
@@ -91,7 +91,7 @@ def merge_config_into_args(args, config: dict) -> None:
 
 
 def create_config_interactive(
-    config_dir: pathlib.Path | None = None,
+    cfg_dir: pathlib.Path | None = None,
     input_fn=input,
     print_fn=print,
 ) -> pathlib.Path:
@@ -99,11 +99,11 @@ def create_config_interactive(
 
     Returns the path to the written config file.
     """
-    if config_dir is None:
-        config_dir = _config_dir()
-    config_dir.mkdir(parents=True, exist_ok=True)
+    if cfg_dir is None:
+        cfg_dir = config_dir()
+    cfg_dir.mkdir(parents=True, exist_ok=True)
 
-    existing = load_config(config_dir)
+    existing = load_config(cfg_dir)
 
     settings: list[tuple[str, str, str]] = [
         ("images_target", "Images target directory", str(_DEFAULTS["images_target"])),
@@ -141,7 +141,7 @@ def create_config_interactive(
         if key in result and result[key] is False:
             del result[key]
 
-    path = config_dir / CONFIG_FILENAME
+    path = cfg_dir / CONFIG_FILENAME
     path.write_text(_to_toml(result))
     print_fn(f"Configuration saved to {path}")
     return path

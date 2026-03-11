@@ -5,7 +5,7 @@ from __future__ import annotations
 from undisorder.audio_metadata import AudioMetadata
 from undisorder.audio_metadata import extract_audio_batch
 from undisorder.audio_metadata import write_audio_tags
-from undisorder.config import _config_dir
+from undisorder.config import config_dir
 from undisorder.hashdb import HashDB
 from undisorder.hasher import hash_file
 from undisorder.metadata import extract_batch
@@ -43,7 +43,7 @@ def _log_failure(
     exc: Exception,
 ) -> None:
     """Append a structured failure record to the import failures log."""
-    log_path = _config_dir() / "import_failures.jsonl"
+    log_path = config_dir() / "import_failures.jsonl"
     entry = {
         "timestamp": datetime.datetime.now().isoformat(),
         "source_dir": str(rel_dir),
@@ -477,7 +477,7 @@ def run_import(args: argparse.Namespace) -> None:
         failures += _import_audio(args, result)
 
     if failures:
-        log_path = _config_dir() / "import_failures.jsonl"
+        log_path = config_dir() / "import_failures.jsonl"
         logger.warning(
             f"\n{failures} batch(es) failed. Details written to {log_path}"
         )

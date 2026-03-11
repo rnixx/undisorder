@@ -1461,7 +1461,7 @@ class TestFailureLogging:
         """A batch failure writes a valid JSONL entry with expected fields."""
         config_dir = tmp_path / "config"
         config_dir.mkdir()
-        monkeypatch.setattr("undisorder.importer._config_dir", lambda: config_dir)
+        monkeypatch.setattr("undisorder.importer.config_dir", lambda: config_dir)
 
         rel_dir = pathlib.PurePosixPath("vacation")
         batch = [pathlib.Path("/src/vacation/photo1.jpg")]
@@ -1488,7 +1488,7 @@ class TestFailureLogging:
         """Multiple failures append separate entries to the same file."""
         config_dir = tmp_path / "config"
         config_dir.mkdir()
-        monkeypatch.setattr("undisorder.importer._config_dir", lambda: config_dir)
+        monkeypatch.setattr("undisorder.importer.config_dir", lambda: config_dir)
 
         for i in range(2):
             try:
@@ -1511,7 +1511,7 @@ class TestFailureLogging:
         """The traceback field is non-empty and contains the exception message."""
         config_dir = tmp_path / "config"
         config_dir.mkdir()
-        monkeypatch.setattr("undisorder.importer._config_dir", lambda: config_dir)
+        monkeypatch.setattr("undisorder.importer.config_dir", lambda: config_dir)
 
         try:
             raise RuntimeError("something broke")
@@ -1530,7 +1530,7 @@ class TestFailureLogging:
         """End-to-end: a batch error during import writes to the JSONL log."""
         config_dir = tmp_path / "config"
         config_dir.mkdir()
-        monkeypatch.setattr("undisorder.importer._config_dir", lambda: config_dir)
+        monkeypatch.setattr("undisorder.importer.config_dir", lambda: config_dir)
 
         source = tmp_path / "source"
         dir_a = source / "aaa"
