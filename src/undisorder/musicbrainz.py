@@ -5,8 +5,11 @@ from __future__ import annotations
 from undisorder.audio_metadata import AudioMetadata
 
 import acoustid
+import logging
 import musicbrainzngs
 import pathlib
+
+logger = logging.getLogger(__name__)
 
 
 musicbrainzngs.set_useragent("undisorder", "0.1.0", "https://github.com/undisorder")
@@ -21,6 +24,7 @@ def fingerprint_audio(path: pathlib.Path) -> tuple[float, str] | None:
         duration, fingerprint = acoustid.fingerprint_file(str(path))
         return (duration, fingerprint)
     except Exception:
+        logger.warning("Failed to fingerprint %s", path.name, exc_info=True)
         return None
 
 
@@ -40,6 +44,7 @@ def lookup_acoustid(
             return None
         return recordings[0].get("id")
     except Exception:
+        logger.warning("AcoustID lookup failed", exc_info=True)
         return None
 
 
@@ -50,6 +55,7 @@ def lookup_musicbrainz(recording_id: str) -> AudioMetadata | None:
             recording_id, includes=["artists", "releases"]
         )
     except Exception:
+        logger.warning("MusicBrainz lookup failed for %s", recording_id, exc_info=True)
         return None
 
     rec = result.get("recording", {})

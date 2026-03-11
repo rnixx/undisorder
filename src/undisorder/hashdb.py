@@ -109,7 +109,7 @@ class HashDB:
         )
         self._conn.commit()
 
-    def hash_exists(self, hash: str) -> bool:
+    def hash_exists(self, file_hash: str) -> bool:
         """Check if original_hash exists globally (not scoped to target_dir).
 
         Since original_hash is the primary key, a file can only be imported once
@@ -117,15 +117,15 @@ class HashDB:
         """
         cursor = self._conn.execute(
             "SELECT 1 FROM files WHERE original_hash = ?",
-            (hash,),
+            (file_hash,),
         )
         return cursor.fetchone() is not None
 
-    def get_by_hash(self, hash: str) -> dict[str, object] | None:
+    def get_by_hash(self, file_hash: str) -> dict[str, object] | None:
         """Get the record for a given original_hash, or None."""
         cursor = self._conn.execute(
             "SELECT * FROM files WHERE original_hash = ?",
-            (hash,),
+            (file_hash,),
         )
         row = cursor.fetchone()
         return dict(row) if row else None

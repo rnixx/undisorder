@@ -57,6 +57,7 @@ def extract_audio(path: pathlib.Path) -> AudioMetadata:
     try:
         tags = mutagen.File(path, easy=True)
     except Exception:
+        logger.warning("Failed to read audio tags from %s", path.name, exc_info=True)
         return meta
 
     if tags is None:
