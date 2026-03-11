@@ -82,6 +82,12 @@ brew install exiftool chromaprint
 ### Install
 
 ```bash
+pip install undisorder
+```
+
+### Install from source
+
+```bash
 git clone https://github.com/rnixx/undisorder.git
 cd undisorder
 make install

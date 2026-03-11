@@ -4,6 +4,7 @@
 /.mxmake/
 /build/
 /constraints-mxdev.txt
+/dist/
 /requirements-mxdev.txt
 /venv/
 __pycache__
