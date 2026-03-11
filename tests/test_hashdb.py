@@ -1,6 +1,6 @@
 """Tests for undisorder.hashdb — SQLite hash index CRUD."""
 
-from undisorder.hashdb import HashDB
+from undisorder.hashdb import HashDB, _SCHEMA_VERSION
 
 import pathlib
 import pytest
@@ -35,6 +35,43 @@ class TestHashDBInit:
         db_path = tmp_path / "test.db"
         HashDB(tmp_target, db_path=db_path)
         HashDB(tmp_target, db_path=db_path)
+
+    def test_context_manager_closes_connection(self, tmp_path: pathlib.Path, tmp_target: pathlib.Path):
+        """Using HashDB as context manager should close the connection on exit."""
+        db_path = tmp_path / "test.db"
+        with HashDB(tmp_target, db_path=db_path) as db:
+            db.insert(original_hash="h1", file_path="a.jpg")
+        # Connection is closed — operations should fail
+        with pytest.raises(Exception):
+            db.hash_exists("h1")
+
+    def test_context_manager_preserves_data(self, tmp_path: pathlib.Path, tmp_target: pathlib.Path):
+        """Data inserted before context exit should be readable in a new connection."""
+        db_path = tmp_path / "test.db"
+        with HashDB(tmp_target, db_path=db_path) as db:
+            db.insert(original_hash="h1", file_path="a.jpg")
+        # Reopen and verify
+        db2 = HashDB(tmp_target, db_path=db_path)
+        assert db2.hash_exists("h1")
+
+    def test_fresh_db_gets_schema_version(self, tmp_path: pathlib.Path, tmp_target: pathlib.Path):
+        """A new database should be stamped with the current schema version."""
+        db_path = tmp_path / "test.db"
+        HashDB(tmp_target, db_path=db_path)
+        conn = sqlite3.connect(db_path)
+        version = conn.execute("PRAGMA user_version").fetchone()[0]
+        conn.close()
+        assert version == _SCHEMA_VERSION
+
+    def test_incompatible_schema_version_exits(self, tmp_path: pathlib.Path, tmp_target: pathlib.Path):
+        """Opening a DB with a different schema version should exit."""
+        db_path = tmp_path / "test.db"
+        conn = sqlite3.connect(db_path)
+        conn.execute(f"PRAGMA user_version = {_SCHEMA_VERSION + 1}")
+        conn.commit()
+        conn.close()
+        with pytest.raises(SystemExit):
+            HashDB(tmp_target, db_path=db_path)
 
 
 

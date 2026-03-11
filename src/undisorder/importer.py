@@ -230,19 +230,16 @@ def _import_photo_video(args: argparse.Namespace, result) -> int:
     if not args.dry_run:
         args.images_target.mkdir(parents=True, exist_ok=True)
         args.video_target.mkdir(parents=True, exist_ok=True)
-    img_db = HashDB(args.images_target)
-    vid_db = HashDB(args.video_target)
 
-    failures = _run_batch_pipeline(
-        media_files, args,
-        media_label="photo/video",
-        failure_label="photo_video",
-        batch_size=100,
-        batch_fn=lambda batch: _import_photo_video_batch(batch, args, img_db, vid_db),
-    )
+    with HashDB(args.images_target) as img_db, HashDB(args.video_target) as vid_db:
+        failures = _run_batch_pipeline(
+            media_files, args,
+            media_label="photo/video",
+            failure_label="photo_video",
+            batch_size=100,
+            batch_fn=lambda batch: _import_photo_video_batch(batch, args, img_db, vid_db),
+        )
 
-    img_db.close()
-    vid_db.close()
     return failures
 
 
@@ -362,17 +359,16 @@ def _import_audio(args: argparse.Namespace, result) -> int:
 
     if not args.dry_run:
         args.audio_target.mkdir(parents=True, exist_ok=True)
-    aud_db = HashDB(args.audio_target)
 
-    failures = _run_batch_pipeline(
-        audio_files, args,
-        media_label="audio",
-        failure_label="audio",
-        batch_size=10,
-        batch_fn=lambda batch: _import_audio_batch(batch, args, aud_db, acoustid_key=acoustid_key),
-    )
+    with HashDB(args.audio_target) as aud_db:
+        failures = _run_batch_pipeline(
+            audio_files, args,
+            media_label="audio",
+            failure_label="audio",
+            batch_size=10,
+            batch_fn=lambda batch: _import_audio_batch(batch, args, aud_db, acoustid_key=acoustid_key),
+        )
 
-    aud_db.close()
     return failures
 
 

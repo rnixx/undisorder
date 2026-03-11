@@ -13,6 +13,7 @@ import sqlite3
 
 logger = logging.getLogger(__name__)
 
+_SCHEMA_VERSION = 1
 
 _SCHEMA = """\
 CREATE TABLE IF NOT EXISTS files (
@@ -46,7 +47,14 @@ def _default_db_path() -> pathlib.Path:
 
 
 class HashDB:
-    """SQLite-backed hash index for a target directory."""
+    """SQLite-backed hash index for a target directory.
+
+    Use as a context manager to get automatic commit on success and
+    rollback on exception::
+
+        with HashDB(target) as db:
+            db.insert(...)
+    """
 
     def __init__(
         self,
@@ -58,7 +66,28 @@ class HashDB:
         self.db_path = db_path if db_path is not None else _default_db_path()
         self._conn = sqlite3.connect(self.db_path)
         self._conn.row_factory = sqlite3.Row
+        self._check_schema_version()
         self._conn.executescript(_SCHEMA)
+
+    def _check_schema_version(self) -> None:
+        """Verify schema version; exit if incompatible."""
+        version = self._conn.execute("PRAGMA user_version").fetchone()[0]
+        if version == 0:
+            # Fresh database — stamp with current version
+            self._conn.execute(f"PRAGMA user_version = {_SCHEMA_VERSION}")
+        elif version != _SCHEMA_VERSION:
+            self._conn.close()
+            logger.error(
+                f"Database {self.db_path} has schema version {version}, "
+                f"expected {_SCHEMA_VERSION}. Delete the database and re-run."
+            )
+            raise SystemExit(1)
+
+    def __enter__(self) -> HashDB:
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+        self._conn.close()
 
     def insert(
         self,
