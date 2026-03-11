@@ -46,9 +46,10 @@ ffmpeg -f lavfi -i "color=c=green:s=64x64:d=0.5" -f lavfi -i "sine=f=440:d=0.5" 
 echo "=== Creating audio ==="
 mkdir -p "$BASE/source/music"
 
-ffmpeg -f lavfi -i "sine=frequency=440:duration=2" -q:a 9 \
+# Use 15-second audio for AcoustID compatibility (chromaprint needs ~10s+)
+ffmpeg -f lavfi -i "sine=frequency=440:duration=15" -q:a 9 \
     "$BASE/source/music/song1.mp3" -y -loglevel error
-ffmpeg -f lavfi -i "sine=frequency=880:duration=2" -q:a 9 \
+ffmpeg -f lavfi -i "sine=frequency=880:duration=15" -q:a 9 \
     "$BASE/source/music/song2.mp3" -y -loglevel error
 
 # Write tags via mutagen (always available in venv)

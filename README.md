@@ -245,6 +245,19 @@ make format      # Auto-fix lint issues
 CI runs all checks via GitHub Actions on push and pull request
 (Python 3.11, 3.12, 3.13).
 
+### Manual testing
+
+The `testing/` directory contains scripts for end-to-end testing with
+real media files. Requires `ffmpeg` and `exiftool`.
+
+```bash
+testing/setup.sh     # Create test data in /tmp/undisorder-test/
+testing/run.sh       # Run all manual tests
+testing/verify.sh    # Verify results
+```
+
+For AcoustID identification tests, set `ACOUSTID_API_KEY` before running.
+
 ## Author
 
 Robert Niederreiter <rnix@squarewave.at>

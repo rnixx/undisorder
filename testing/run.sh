@@ -7,6 +7,7 @@ set -euo pipefail
 BASE=/tmp/undisorder-test
 export XDG_CONFIG_HOME="$BASE/config"
 UNDISORDER="$(cd "$(dirname "$0")/.." && pwd)/venv/bin/python -m undisorder"
+DB="$BASE/config/undisorder/undisorder.db"
 
 pass=0
 fail=0
@@ -65,7 +66,7 @@ run_test 7 "Exclude DAW*" $UNDISORDER import "$BASE/source" --exclude-dir "DAW*"
 $UNDISORDER import "$BASE/source" --exclude-dir "DAW*" --dry-run
 
 # ======================================================================
-# TEST 8: import with --move
+# TEST 8: import with --move (fresh DB + fresh targets)
 # ======================================================================
 run_test 8 "Import with --move (fresh targets)"
 
@@ -73,6 +74,10 @@ run_test 8 "Import with --move (fresh targets)"
 rm -rf "$BASE"/{photos2,videos2,musik2,source_move}
 mkdir -p "$BASE"/{photos2,videos2,musik2}
 cp -r "$BASE/source" "$BASE/source_move"
+
+# Back up the import DB and delete it so dedup does not skip files
+cp "$DB" "$DB.import_bak" 2>/dev/null || true
+rm -f "$DB"
 
 # Override config for this test
 cat > "$BASE/config/undisorder/config.toml" <<EOF
@@ -85,7 +90,9 @@ echo "  \$ $UNDISORDER import $BASE/source_move --move"
 echo ""
 $UNDISORDER import "$BASE/source_move" --move
 
-# Restore config
+# Restore import DB and config
+rm -f "$DB"
+mv "$DB.import_bak" "$DB" 2>/dev/null || true
 cat > "$BASE/config/undisorder/config.toml" <<EOF
 images_target = "$BASE/photos"
 video_target = "$BASE/videos"
@@ -123,10 +130,12 @@ $UNDISORDER -q dupes "$BASE/source"
 # ======================================================================
 run_test 12 "Schema version mismatch"
 VENV="$(cd "$(dirname "$0")/.." && pwd)/venv/bin/python"
-# Create a DB with wrong schema version
+
+# Save current DB and create one with wrong schema version
+cp "$DB" "$DB.bak" 2>/dev/null || true
 "$VENV" -c "
 import sqlite3, pathlib
-db_path = pathlib.Path('$BASE/config/undisorder/undisorder.db')
+db_path = pathlib.Path('$DB')
 db_path.parent.mkdir(parents=True, exist_ok=True)
 conn = sqlite3.connect(db_path)
 conn.execute('PRAGMA user_version = 99')
@@ -141,8 +150,11 @@ if $UNDISORDER import "$BASE/source" --dry-run 2>&1; then
 else
     echo "  OK: exited with error as expected"
 fi
-# Clean up broken DB
-rm -f "$BASE/config/undisorder/undisorder.db"
+# Restore original DB
+rm -f "$DB"
+if [ -f "$DB.bak" ]; then
+    mv "$DB.bak" "$DB"
+fi
 
 # ======================================================================
 # TEST 13: --identify (only if ACOUSTID_API_KEY is set)
@@ -152,6 +164,10 @@ if [ -n "${ACOUSTID_API_KEY:-}" ]; then
 
     rm -rf "$BASE"/{photos3,videos3,musik3}
     mkdir -p "$BASE"/{photos3,videos3,musik3}
+
+    # Back up and delete DB so dedup does not skip files
+    cp "$DB" "$DB.bak" 2>/dev/null || true
+    rm -f "$DB"
 
     cat > "$BASE/config/undisorder/config.toml" <<EOF
 images_target = "$BASE/photos3"
@@ -164,7 +180,7 @@ EOF
     echo ""
     $UNDISORDER import "$BASE/source" --identify
 
-    # Restore config
+    # Restore config (keep identify DB for verify)
     cat > "$BASE/config/undisorder/config.toml" <<EOF
 images_target = "$BASE/photos"
 video_target = "$BASE/videos"
