@@ -116,7 +116,7 @@ $UNDISORDER dupes "$BASE/dupetest" --delete
 # TEST 10: verbose output
 # ======================================================================
 run_test 10 "Verbose output" $UNDISORDER -v dupes "$BASE/source"
-$UNDISORDER -v dupes "$BASE/source" 2>&1 | head -20
+$UNDISORDER -v dupes "$BASE/source" 2>&1 | head -20 || true
 echo "  ... (truncated)"
 
 # ======================================================================
@@ -180,7 +180,12 @@ EOF
     echo ""
     $UNDISORDER import "$BASE/source" --identify
 
-    # Restore config (keep identify DB for verify)
+    # Save identify DB for cache verification, restore original DB
+    cp "$DB" "$BASE/config/identify.db" 2>/dev/null || true
+    rm -f "$DB"
+    mv "$DB.bak" "$DB" 2>/dev/null || true
+
+    # Restore config
     cat > "$BASE/config/config.toml" <<EOF
 images_target = "$BASE/photos"
 video_target = "$BASE/videos"
@@ -204,12 +209,14 @@ rm -rf "$CONFIGURE_DIR"
 mkdir -p "$CONFIGURE_DIR"
 
 # Pipe answers to --configure (all defaults except images_target and dry_run)
+# 8 prompts: images_target, video_target, audio_target, dry_run, move, identify, select, acoustid_key
 UNDISORDER_CONFIG_DIR="$CONFIGURE_DIR" \
     $UNDISORDER --configure <<EOF
 $BASE/photos_configured
 
 
 true
+
 
 
 

@@ -109,9 +109,12 @@ n_audio=$(count_files "$BASE/musik2")
 check "Move: photos imported to photos2 (got $n_photos)" '[ "$n_photos" -ge 1 ]'
 check "Move: audio imported to musik2 (got $n_audio)" '[ "$n_audio" -ge 1 ]'
 
-# Source files removed after move (media files should be gone)
-check_not "Move: source photos removed" 'test -f "$BASE/source_move/vacation/photo1.jpg"'
-check_not "Move: source audio removed" 'test -f "$BASE/source_move/music/song1.mp3"'
+# Source files removed after move (non-dupe files should be gone)
+# photo1.jpg stays because photo1_copy.jpg (backup/) is imported first, then photo1 is skipped as dupe
+# song1.mp3 stays because song1_dup.mp3 (backup/) is imported first, then song1 is skipped as dupe
+check_not "Move: source photo1_copy removed" 'test -f "$BASE/source_move/backup/photo1_copy.jpg"'
+check_not "Move: source song1_dup removed" 'test -f "$BASE/source_move/backup/song1_dup.mp3"'
+check_not "Move: source video removed" 'test -f "$BASE/source_move/clips/video.mp4"'
 
 echo ""
 echo "================================================================"
@@ -174,9 +177,9 @@ check "HashDB: all file_path relative (absolute: ${db_abs_paths:-?})" '[ "${db_a
 db_no_date=$(db_query "$DB" "SELECT COUNT(*) FROM files WHERE import_date IS NULL OR import_date = ''")
 check "HashDB: all records have import_date (missing: ${db_no_date:-?})" '[ "${db_no_date:-1}" -eq 0 ]'
 
-# No records for duplicate files (photo1_copy, song1_dup should not appear)
-db_dupes=$(db_query "$DB" "SELECT COUNT(*) FROM files WHERE file_path LIKE '%copy%' OR file_path LIKE '%dup%'")
-check "HashDB: no records for dupe source names (got ${db_dupes:-?})" '[ "${db_dupes:-1}" -eq 0 ]'
+# Duplicate files only stored once per hash (no double entries)
+db_distinct_hashes=$(db_query "$DB" "SELECT COUNT(DISTINCT original_hash) FROM files")
+check "HashDB: all hashes unique (distinct: ${db_distinct_hashes:-?}, total: ${db_total:-?})" '[ "${db_distinct_hashes:-0}" -eq "${db_total:-1}" ]'
 
 # Verify file_path entries point to files that actually exist on disk
 bad_paths=$("$VENV" -c "
@@ -265,11 +268,13 @@ if [ -d "$BASE/musik3" ]; then
     n=$(count_files "$BASE/musik3")
     check "Identify: audio files imported (got $n)" '[ "$n" -ge 1 ]'
 
-    # For identify tests, a separate DB was created
-    identify_db="$BASE/config/undisorder.db"
+    identify_db="$BASE/config/identify.db"
     if [ -f "$identify_db" ]; then
         cache_count=$(db_query "$identify_db" "SELECT COUNT(*) FROM acoustid_cache")
         check "Identify: acoustid_cache populated (got ${cache_count:-0})" '[ "${cache_count:-0}" -gt 0 ]'
+    else
+        echo "  FAIL: identify DB not found at $identify_db"
+        ((fail++))
     fi
 else
     echo "  SKIP: --identify not tested (no ACOUSTID_API_KEY)"
