@@ -12,11 +12,6 @@ authors = [
 readme = "README.md"
 license = "GPL-2.0-only"
 requires-python = ">=3.11"
-
-[project.urls]
-Homepage = "https://github.com/rnixx/undisorder"
-Repository = "https://github.com/rnixx/undisorder"
-Issues = "https://github.com/rnixx/undisorder/issues"
 dependencies = [
     "mutagen>=1.47",
     "musicbrainzngs>=0.7",
@@ -34,6 +29,11 @@ dev = [
 
 [project.scripts]
 undisorder = "undisorder.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/rnixx/undisorder"
+Repository = "https://github.com/rnixx/undisorder"
+Issues = "https://github.com/rnixx/undisorder/issues"
 
 [tool.setuptools.packages.find]
 where = ["src"]
