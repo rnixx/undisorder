@@ -30,9 +30,19 @@ _LIST_KEYS = {"exclude", "exclude_dir"}
 
 
 def config_dir() -> pathlib.Path:
-    """Return the undisorder config directory."""
-    base = pathlib.Path(os.environ.get("XDG_CONFIG_HOME", "~/.config")).expanduser()
-    d = base / "undisorder"
+    """Return the undisorder config directory.
+
+    Resolution order:
+    1. UNDISORDER_CONFIG_DIR (direct path)
+    2. XDG_CONFIG_HOME/undisorder
+    3. ~/.config/undisorder
+    """
+    explicit = os.environ.get("UNDISORDER_CONFIG_DIR")
+    if explicit:
+        d = pathlib.Path(explicit).expanduser()
+    else:
+        base = pathlib.Path(os.environ.get("XDG_CONFIG_HOME", "~/.config")).expanduser()
+        d = base / "undisorder"
     d.mkdir(parents=True, exist_ok=True)
     return d
 

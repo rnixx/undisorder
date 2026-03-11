@@ -65,10 +65,24 @@ class TestLoadConfig:
         assert cfg["move"] is False
 
     def test_uses_default_config_dir(self, tmp_path, monkeypatch):
+        monkeypatch.delenv("UNDISORDER_CONFIG_DIR", raising=False)
         monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
         config_dir = tmp_path / "undisorder"
         config_dir.mkdir(parents=True, exist_ok=True)
         (config_dir / CONFIG_FILENAME).write_text("dry_run = true\n")
+        cfg = load_config()
+        assert cfg["dry_run"] is True
+
+    def test_undisorder_config_dir_overrides_xdg(self, tmp_path, monkeypatch):
+        """UNDISORDER_CONFIG_DIR takes precedence over XDG_CONFIG_HOME."""
+        custom_dir = tmp_path / "custom_config"
+        custom_dir.mkdir()
+        (custom_dir / CONFIG_FILENAME).write_text("dry_run = true\n")
+        xdg_dir = tmp_path / "xdg" / "undisorder"
+        xdg_dir.mkdir(parents=True)
+        (xdg_dir / CONFIG_FILENAME).write_text("dry_run = false\n")
+        monkeypatch.setenv("UNDISORDER_CONFIG_DIR", str(custom_dir))
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
         cfg = load_config()
         assert cfg["dry_run"] is True
 

@@ -5,9 +5,9 @@
 set -euo pipefail
 
 BASE=/tmp/undisorder-test
-export XDG_CONFIG_HOME="$BASE/config"
+export UNDISORDER_CONFIG_DIR="$BASE/config"
 UNDISORDER="$(cd "$(dirname "$0")/.." && pwd)/venv/bin/python -m undisorder"
-DB="$BASE/config/undisorder/undisorder.db"
+DB="$BASE/config/undisorder.db"
 
 pass=0
 fail=0
@@ -80,7 +80,7 @@ cp "$DB" "$DB.import_bak" 2>/dev/null || true
 rm -f "$DB"
 
 # Override config for this test
-cat > "$BASE/config/undisorder/config.toml" <<EOF
+cat > "$BASE/config/config.toml" <<EOF
 images_target = "$BASE/photos2"
 video_target = "$BASE/videos2"
 audio_target = "$BASE/musik2"
@@ -93,7 +93,7 @@ $UNDISORDER import "$BASE/source_move" --move
 # Restore import DB and config
 rm -f "$DB"
 mv "$DB.import_bak" "$DB" 2>/dev/null || true
-cat > "$BASE/config/undisorder/config.toml" <<EOF
+cat > "$BASE/config/config.toml" <<EOF
 images_target = "$BASE/photos"
 video_target = "$BASE/videos"
 audio_target = "$BASE/musik"
@@ -169,7 +169,7 @@ if [ -n "${ACOUSTID_API_KEY:-}" ]; then
     cp "$DB" "$DB.bak" 2>/dev/null || true
     rm -f "$DB"
 
-    cat > "$BASE/config/undisorder/config.toml" <<EOF
+    cat > "$BASE/config/config.toml" <<EOF
 images_target = "$BASE/photos3"
 video_target = "$BASE/videos3"
 audio_target = "$BASE/musik3"
@@ -181,7 +181,7 @@ EOF
     $UNDISORDER import "$BASE/source" --identify
 
     # Restore config (keep identify DB for verify)
-    cat > "$BASE/config/undisorder/config.toml" <<EOF
+    cat > "$BASE/config/config.toml" <<EOF
 images_target = "$BASE/photos"
 video_target = "$BASE/videos"
 audio_target = "$BASE/musik"
@@ -192,6 +192,88 @@ else
     echo "  TEST 13: SKIPPED (set ACOUSTID_API_KEY to enable)"
     echo "================================================================"
 fi
+
+# ======================================================================
+# TEST 14: --configure writes config file
+# ======================================================================
+run_test 14 "Interactive --configure"
+
+# Use a separate config dir for this test
+CONFIGURE_DIR="$BASE/config_test"
+rm -rf "$CONFIGURE_DIR"
+mkdir -p "$CONFIGURE_DIR"
+
+# Pipe answers to --configure (all defaults except images_target and dry_run)
+UNDISORDER_CONFIG_DIR="$CONFIGURE_DIR" \
+    $UNDISORDER --configure <<EOF
+$BASE/photos_configured
+
+
+true
+
+
+
+EOF
+echo "  Config written to: $CONFIGURE_DIR/config.toml"
+echo "  Contents:"
+cat "$CONFIGURE_DIR/config.toml" | sed 's/^/    /'
+
+# ======================================================================
+# TEST 15: config file settings picked up by CLI
+# ======================================================================
+run_test 15 "CLI uses settings from config file"
+
+# Write a config with custom targets + exclude pattern
+CFG_DIR="$BASE/config_cli_test"
+rm -rf "$CFG_DIR" "$BASE"/{photos_cfg,videos_cfg,musik_cfg}
+mkdir -p "$CFG_DIR" "$BASE"/{photos_cfg,videos_cfg,musik_cfg}
+
+cat > "$CFG_DIR/config.toml" <<EOF
+images_target = "$BASE/photos_cfg"
+video_target = "$BASE/videos_cfg"
+audio_target = "$BASE/musik_cfg"
+exclude = ["*.wav"]
+exclude_dir = ["DAW*"]
+EOF
+
+# Back up main DB, delete it for a clean import
+cp "$DB" "$DB.bak" 2>/dev/null || true
+rm -f "$DB"
+
+echo "  Config: $CFG_DIR/config.toml"
+cat "$CFG_DIR/config.toml" | sed 's/^/    /'
+echo ""
+echo "  \$ UNDISORDER_CONFIG_DIR=$CFG_DIR $UNDISORDER import $BASE/source"
+echo ""
+UNDISORDER_CONFIG_DIR="$CFG_DIR" $UNDISORDER import "$BASE/source"
+
+# Restore main DB
+rm -f "$DB"
+mv "$DB.bak" "$DB" 2>/dev/null || true
+
+# ======================================================================
+# TEST 16: CLI flags override config file
+# ======================================================================
+run_test 16 "CLI flags override config"
+
+# Config has default targets, but CLI overrides images_target
+rm -rf "$BASE/photos_override"
+mkdir -p "$BASE/photos_override"
+
+# Back up main DB, delete it
+cp "$DB" "$DB.bak" 2>/dev/null || true
+rm -f "$DB"
+
+echo "  Config images_target: $BASE/photos (from main config)"
+echo "  CLI --images-target:  $BASE/photos_override"
+echo ""
+echo "  \$ $UNDISORDER import $BASE/source --images-target $BASE/photos_override --dry-run"
+echo ""
+$UNDISORDER import "$BASE/source" --images-target "$BASE/photos_override" --dry-run
+
+# Restore main DB
+rm -f "$DB"
+mv "$DB.bak" "$DB" 2>/dev/null || true
 
 # ======================================================================
 # Done

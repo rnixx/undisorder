@@ -8,7 +8,7 @@ VENV="$(cd "$(dirname "$0")/.." && pwd)/venv/bin/python"
 
 echo "=== Cleaning up previous test data ==="
 rm -rf "$BASE"
-mkdir -p "$BASE"/{source,photos,videos,musik}
+mkdir -p "$BASE"/{source,photos,videos,musik,config}
 
 # -----------------------------------------------------------------------
 # Photos
@@ -98,11 +98,10 @@ cp "$BASE/source/vacation/photo1.jpg" "$BASE/source/.hidden_photo.jpg"
 echo "notes" > "$BASE/source/notes.txt"
 
 # -----------------------------------------------------------------------
-# Config (XDG_CONFIG_HOME override)
+# Config
 # -----------------------------------------------------------------------
 echo "=== Creating test config ==="
-mkdir -p "$BASE/config/undisorder"
-cat > "$BASE/config/undisorder/config.toml" <<EOF
+cat > "$BASE/config/config.toml" <<EOF
 images_target = "$BASE/photos"
 video_target = "$BASE/videos"
 audio_target = "$BASE/musik"
@@ -117,6 +116,6 @@ echo ""
 find "$BASE/source" -type f | sort | sed "s|$BASE/||"
 echo ""
 echo "Base dir:   $BASE"
-echo "Config:     XDG_CONFIG_HOME=$BASE/config"
+echo "Config:     UNDISORDER_CONFIG_DIR=$BASE/config"
 echo ""
 echo "Run tests:  testing/run.sh"

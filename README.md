@@ -174,7 +174,8 @@ Get a free key at https://acoustid.org/new-application.
 
 ## Configuration
 
-`~/.config/undisorder/config.toml` (respects `$XDG_CONFIG_HOME`):
+`~/.config/undisorder/config.toml` (override with `$UNDISORDER_CONFIG_DIR`
+or `$XDG_CONFIG_HOME`):
 
 ```toml
 images_target = "~/Bilder/Fotos"
@@ -248,7 +249,30 @@ CI runs all checks via GitHub Actions on push and pull request
 ### Manual testing
 
 The `testing/` directory contains scripts for end-to-end testing with
-real media files. Requires `ffmpeg` and `exiftool`.
+real media files.
+
+#### Additional system dependencies
+
+The test setup script (`testing/setup.sh`) generates synthetic media
+files and requires these tools in addition to the runtime prerequisites:
+
+- **ffmpeg** -- with `lavfi` input support, `libx264` video codec, and
+  `aac` audio codec (standard in most distribution packages)
+- **exiftool** -- already required at runtime, also used to stamp EXIF
+  dates on generated test images
+
+```bash
+# Ubuntu/Debian
+sudo apt install ffmpeg libimage-exiftool-perl
+
+# Arch
+sudo pacman -S ffmpeg perl-image-exiftool
+
+# macOS
+brew install ffmpeg exiftool
+```
+
+#### Running
 
 ```bash
 testing/setup.sh     # Create test data in /tmp/undisorder-test/
